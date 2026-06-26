@@ -265,7 +265,7 @@ def save_report(projet, config, jours, jours_order):
                      "note": quart.get("description") or None,
                      "tam": quart.get("temp_am"), "tpm": quart.get("temp_pm"),
                      "cond": list(quart.get("conditions") or []),
-                     "acts": list(quart.get("activites") or []),
+                     "acts": sorted({a for acts in (quart.get("heures") or {}).values() for a in acts}),
                      "autres": list(quart.get("autres") or [])},
                 ).scalar()
                 for name in quart.get("personnel", []):
@@ -277,20 +277,29 @@ def save_report(projet, config, jours, jours_order):
                                    "values (:q, :n, 'E') on conflict do nothing"),
                               {"q": quart_id, "n": name})
                 for resource_name, acts in (quart.get("heures") or {}).items():
-                    for activity_label, hrs in (acts or {}).items():
-                        if hrs is None:
+                    for activity_label, pair in (acts or {}).items():
+                        tr = float((pair or {}).get("TR") or 0.0)
+                        ts = float((pair or {}).get("TS") or 0.0)
+                        if tr == 0.0 and ts == 0.0:
                             continue
-                        s.execute(text("insert into report_hours (quart_id, resource_name, activity_label, hours) "
-                                       "values (:q, :rn, :al, :h)"),
-                                  {"q": quart_id, "rn": resource_name, "al": activity_label, "h": float(hrs)})
+                        s.execute(text("insert into report_hours "
+                                       "(quart_id, resource_name, activity_label, hours, hours_ts) "
+                                       "values (:q, :rn, :al, :h, :hts)"),
+                                  {"q": quart_id, "rn": resource_name, "al": activity_label,
+                                   "h": tr, "hts": ts})
                 prime = quart.get("prime") or {}
                 commentaire = quart.get("commentaire_ligne") or {}
-                for resource_name in set(prime) | set(commentaire):
-                    s.execute(text("insert into report_lines (quart_id, resource_name, prime, commentaire) "
-                                   "values (:q, :rn, :p, :c)"),
+                equip_hours = quart.get("equip_hours") or {}
+                equip_codes = quart.get("equip_codes") or {}
+                for resource_name in set(prime) | set(commentaire) | set(equip_hours) | set(equip_codes):
+                    s.execute(text("insert into report_lines "
+                                   "(quart_id, resource_name, prime, commentaire, equip_hours, equip_codes) "
+                                   "values (:q, :rn, :p, :c, :eh, :ec)"),
                               {"q": quart_id, "rn": resource_name,
                                "p": float(prime[resource_name]) if resource_name in prime else None,
-                               "c": commentaire.get(resource_name) or None})
+                               "c": commentaire.get(resource_name) or None,
+                               "eh": float(equip_hours[resource_name]) if resource_name in equip_hours else None,
+                               "ec": list(equip_codes.get(resource_name) or [])})
 
         s.commit()
     return report_id
@@ -339,16 +348,23 @@ def load_report(id_project, week_start):
             quarts_dict = {}
             for q in quarts:
                 hrs = s.execute(
-                    text("select resource_name, activity_label, hours from report_hours where quart_id = :q"),
+                    text("select resource_name, activity_label, hours, hours_ts "
+                         "from report_hours where quart_id = :q"),
                     {"q": q["id"]}).mappings().all()
                 heures = {}
                 for h in hrs:
-                    heures.setdefault(h["resource_name"], {})[h["activity_label"]] = float(h["hours"])
+                    heures.setdefault(h["resource_name"], {})[h["activity_label"]] = {
+                        "TR": float(h["hours"]), "TS": float(h["hours_ts"])}
                 lines = s.execute(
-                    text("select resource_name, prime, commentaire from report_lines where quart_id = :q"),
+                    text("select resource_name, prime, commentaire, equip_hours, equip_codes "
+                         "from report_lines where quart_id = :q"),
                     {"q": q["id"]}).mappings().all()
                 prime = {l["resource_name"]: float(l["prime"]) for l in lines if l["prime"] is not None}
                 commentaire = {l["resource_name"]: l["commentaire"] for l in lines if l["commentaire"]}
+                equip_hours = {l["resource_name"]: float(l["equip_hours"])
+                               for l in lines if l["equip_hours"] is not None}
+                equip_codes = {l["resource_name"]: list(l["equip_codes"])
+                               for l in lines if l["equip_codes"]}
                 res = s.execute(
                     text("select name, kind from report_quart_resources where quart_id = :q order by name"),
                     {"q": q["id"]}).mappings().all()
@@ -363,6 +379,7 @@ def load_report(id_project, week_start):
                     "personnel": [r["name"] for r in res if r["kind"] == "P"],
                     "equipements": [r["name"] for r in res if r["kind"] == "E"],
                     "heures": heures, "prime": prime, "commentaire_ligne": commentaire,
+                    "equip_codes": equip_codes, "equip_hours": equip_hours,
                 }
             if not quarts_dict:
                 quarts_dict = {"Jour": None}  # jour sans quart enregistré -> sera vide
