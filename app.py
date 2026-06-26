@@ -132,7 +132,7 @@ def _clear_quart_widget_state(jour, quart_name):
                 f"acts_{jour}_{quart_name}",
                 f"cond_pills_{jour}_{quart_name}",
                 f"{jour}_{quart_name}_temp_am", f"{jour}_{quart_name}_temp_pm",
-                f"{jour}_{quart_name}_cond", f"roster_search_{jour}_{quart_name}",
+                f"{jour}_{quart_name}_cond", f"resource_sel_{jour}_{quart_name}",
                 f"personnel_pills_{jour}_{quart_name}", f"note_{jour}_{quart_name}",
                 f"show_geoloc_{jour}_{quart_name}", f"geoloc_{jour}_{quart_name}")
     for k in list(st.session_state.keys()):
@@ -1314,22 +1314,28 @@ def view_day_entry():
             st.rerun()
         sb_top2.markdown(f"**Quart : {quart_name}**")
         full_roster = _roster(quart)
-        hd1, hd2 = st.columns([2, 1])
-        hd1.markdown("#### 🕐 Saisie des heures")
-        query = hd2.text_input("Rechercher une ressource", key=f"roster_search_{jour}_{quart_name}",
-                               placeholder="🔍 Rechercher une ressource…",
-                               label_visibility="collapsed").strip().lower()
-        roster = [(n, t) for n, t in full_roster if query in n.lower()] if query else full_roster
+        st.markdown("#### 🕐 Saisie des heures")
         all_activities = data_source.get_activities(st.session_state.projet.get("id_project"))
         if not full_roster:
             st.info("💡 Commencez par sélectionner le **personnel / équipements** dans la configuration.")
-        elif not roster:
-            st.info("🔍 Aucune ressource ne correspond à la recherche.")
         else:
-            for name, typ in roster:
-                icon = "👷" if typ == "P" else "🚜"
-                with st.expander(f"{icon} {name} — {_resource_total(quart, name):.1f} h", expanded=False):
-                    _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
+            # Libellés = noms bruts ; l'icône 👷/🚜 est portée par l'en-tête de la
+            # fiche. (st.radio en ligne plutôt que st.pills : la sélection simple de
+            # st.pills n'est pas représentable sous AppTest — les tests ne pourraient
+            # plus rendre l'étape Saisie.)
+            labels = [n for n, _t in full_roster]
+            by_label = {n: (n, t) for n, t in full_roster}
+            sel_key = f"resource_sel_{jour}_{quart_name}"
+            if st.session_state.get(sel_key) not in labels:
+                st.session_state[sel_key] = labels[0]
+            sel_label = st.radio("Employé / équipement", labels, key=sel_key,
+                                 horizontal=True, label_visibility="collapsed")
+            if sel_label not in by_label:
+                sel_label = labels[0]
+            name, typ = by_label[sel_label]
+            icon = "👷" if typ == "P" else "🚜"
+            st.markdown(f"##### {icon} {name} — {_resource_total(quart, name):.1f} h")
+            _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
         st.divider()
         quart["description"] = st.text_input("📝 Note du quart", quart["description"],
                                              placeholder="Commentaire sur le quart...",

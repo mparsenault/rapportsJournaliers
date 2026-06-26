@@ -420,19 +420,19 @@ def test_manual_add_equipment_confirms_and_clears_field(monkeypatch):
     assert not at.exception
 
 
-def test_roster_search_filters_resources(monkeypatch):
-    """La barre de recherche masque les ressources dont le nom ne correspond pas."""
+def test_resource_selector_shows_selected_card(monkeypatch):
+    """Le sélecteur d'employé affiche la fiche du membre choisi (et masque les autres).
+    On pilote la sélection via session_state (st.pills non cliquable sous AppTest)."""
     at = _open_day_for_entry(monkeypatch, personnel=("Alice", "Bob"))
     _goto_saisie(at)
-    # les deux cartes (multiselect d'activités par ressource) sont visibles au départ
-    keys = [m.key for m in at.multiselect]
-    assert "acts_Lundi_Jour_Alice" in keys and "acts_Lundi_Jour_Bob" in keys
-    # filtrer sur « Alice »
-    search = [t for t in at.text_input if t.key == "roster_search_Lundi_Jour"][0]
-    search.set_value("alice").run()  # insensible à la casse
-    keys = [m.key for m in at.multiselect]
-    assert "acts_Lundi_Jour_Alice" in keys
-    assert "acts_Lundi_Jour_Bob" not in keys
+    # Alice (premier du roster) est sélectionnée par défaut -> sa fiche est rendue
+    assert any(m.key == "acts_Lundi_Jour_Alice" for m in at.multiselect)
+    assert not any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
+    # Sélectionner Bob -> sa fiche s'affiche, celle d'Alice disparaît
+    at.session_state["resource_sel_Lundi_Jour"] = "Bob"
+    at.run()
+    assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
+    assert not any(m.key == "acts_Lundi_Jour_Alice" for m in at.multiselect)
     assert not at.exception
 
 
