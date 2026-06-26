@@ -3,13 +3,6 @@ import datetime
 import pytest
 from streamlit.testing.v1 import AppTest
 
-# La grille d'heures est désormais un composant AgGrid (custom), non pilotable par
-# AppTest. Les tests qui saisissaient via les widgets st.number_input/text_input sont
-# désactivés ; la logique de réécriture est couverte par les tests unitaires de
-# _apply_hours_grid / _build_hours_df. À restaurer/supprimer selon la décision d'adoption.
-_AGGRID_SKIP = "grille AgGrid (composant custom non pilotable par AppTest) — couverture déplacée vers _apply_hours_grid (spike)"
-
-
 def app_quarts(at, jour):
     import app
     return app._day_quart_names(at.session_state["jours"][jour])
@@ -36,7 +29,7 @@ def _empty_quart_dict():
     return {
         "responsable": "", "activites": [], "autres": [], "personnel": [], "equipements": [],
         "temp_am": None, "temp_pm": None, "conditions": [], "heures": {}, "prime": {},
-        "commentaire_ligne": {}, "description": ""}
+        "commentaire_ligne": {}, "equip_codes": {}, "equip_hours": {}, "description": ""}
 
 
 def _open_day_for_entry(monkeypatch, jour="Lundi", personnel=("Alice",)):
@@ -52,11 +45,12 @@ def _open_day_for_entry(monkeypatch, jour="Lundi", personnel=("Alice",)):
                                "personnel": list(personnel), "equipements": [],
                                "temp_am": None, "temp_pm": None, "conditions": [],
                                "heures": {}, "prime": {}, "commentaire_ligne": {},
+                               "equip_codes": {}, "equip_hours": {},
                                "description": ""}}}
     at.session_state["jours"] = {j: {"date": None, "quarts": {"Jour": {
         "responsable": "", "activites": [], "autres": [], "personnel": [], "equipements": [],
         "temp_am": None, "temp_pm": None, "conditions": [], "heures": {}, "prime": {},
-        "commentaire_ligne": {}, "description": ""}}} for j in ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]}
+        "commentaire_ligne": {}, "equip_codes": {}, "equip_hours": {}, "description": ""}}} for j in ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]}
     at.session_state["jours"][jour] = day
     at.session_state["active_day"] = jour
     at.session_state["view"] = "day_entry"
@@ -315,31 +309,43 @@ def test_fields_enabled_after_project_selected(monkeypatch):
 
 
 
-@pytest.mark.skip(reason=_AGGRID_SKIP)
 def test_day_hours_entry_updates_model(monkeypatch):
-    at = _open_day_for_entry(monkeypatch)
-    acts = _acts_pills(at, "Lundi")
-    acts.set_value(["C01 - Test"]).run()
+    at = _open_day_for_entry(monkeypatch)   # personnel Alice, activité dispo "C01 - Test"
     _goto_saisie(at)
-    champ = [n for n in at.number_input if n.key == "h_Lundi_Jour_Alice_C01 - Test"][0]
-    champ.set_value(8.0).run()
+    # choisir l'activité pour Alice puis saisir TR/TS
+    ms = [m for m in at.multiselect if m.key == "acts_Lundi_Jour_Alice"][0]
+    ms.set_value(["C01 - Test"]).run()
+    [n for n in at.number_input if n.key == "tr_Lundi_Jour_Alice_C01 - Test"][0].set_value(8.0).run()
+    [n for n in at.number_input if n.key == "ts_Lundi_Jour_Alice_C01 - Test"][0].set_value(1.5).run()
     q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
-    assert q["heures"]["Alice"]["C01 - Test"] == 8.0
+    assert q["heures"]["Alice"]["C01 - Test"] == {"TR": 8.0, "TS": 1.5}
     assert not at.exception
 
 
-@pytest.mark.skip(reason=_AGGRID_SKIP)
-def test_day_hours_no_grid_data_editor(monkeypatch):
+def test_day_equip_codes_and_hours(monkeypatch):
     at = _open_day_for_entry(monkeypatch)
-    # sélectionner l'activité -> les cartes de saisie apparaissent
-    acts = _acts_pills(at, "Lundi")
-    acts.set_value(["C01 - Test"]).run()
     _goto_saisie(at)
-    # la matrice data_editor a disparu, et les champs d'heures par clé existent (activité, plus 960)
-    assert any(n.key == "h_Lundi_Jour_Alice_C01 - Test" for n in at.number_input)
-    assert not any(n.key == "h_Lundi_Jour_Alice_960" for n in at.number_input)
-    # aucun data_editor (arrow_data_frame) ne doit subsister dans la vue
-    assert not any(getattr(el, "type", None) == "arrow_data_frame" for el in at.main)
+    [n for n in at.number_input if n.key == "eqh_Lundi_Jour_Alice"][0].set_value(10.0).run()
+    q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
+    assert q["equip_hours"]["Alice"] == 10.0
+    # les pills de code d'équipement existent pour l'employé
+    assert any((bg.key or "") == "eqc_Lundi_Jour_Alice" for bg in at.button_group)
+    assert not at.exception
+
+
+def test_day_prime_inline(monkeypatch):
+    at = _open_day_for_entry(monkeypatch)
+    _goto_saisie(at)
+    [n for n in at.number_input if n.key == "p_Lundi_Jour_Alice"][0].set_value(2.0).run()
+    assert at.session_state["jours"]["Lundi"]["quarts"]["Jour"]["prime"]["Alice"] == 2.0
+    assert not at.exception
+
+
+def test_day_comment_inline(monkeypatch):
+    at = _open_day_for_entry(monkeypatch)
+    _goto_saisie(at)
+    [t for t in at.text_input if t.key == "c_Lundi_Jour_Alice"][0].set_value("RAS").run()
+    assert at.session_state["jours"]["Lundi"]["quarts"]["Jour"]["commentaire_ligne"]["Alice"] == "RAS"
     assert not at.exception
 
 
@@ -385,30 +391,6 @@ def test_day_header_date_is_french(monkeypatch):
     assert not at.exception
 
 
-@pytest.mark.skip(reason=_AGGRID_SKIP)
-def test_day_prime_inline_column(monkeypatch):
-    at = _open_day_for_entry(monkeypatch)
-    acts = _acts_pills(at, "Lundi")
-    acts.set_value(["C01 - Test"]).run()
-    _goto_saisie(at)
-    prime = [n for n in at.number_input if n.key == "p_Lundi_Jour_Alice"][0]
-    prime.set_value(2.0).run()
-    assert at.session_state["jours"]["Lundi"]["quarts"]["Jour"]["prime"]["Alice"] == 2.0
-    assert not at.exception
-
-
-@pytest.mark.skip(reason=_AGGRID_SKIP)
-def test_day_comment_inline_column(monkeypatch):
-    at = _open_day_for_entry(monkeypatch)
-    acts = _acts_pills(at, "Lundi")
-    acts.set_value(["C01 - Test"]).run()
-    _goto_saisie(at)
-    com = [t for t in at.text_input if t.key == "c_Lundi_Jour_Alice"][0]
-    com.set_value("RAS").run()
-    assert at.session_state["jours"]["Lundi"]["quarts"]["Jour"]["commentaire_ligne"]["Alice"] == "RAS"
-    assert not at.exception
-
-
 def test_manual_add_employee_confirms_and_clears_field(monkeypatch):
     """Ajout manuel d'un employé : le nom est ajouté, le champ est vidé,
     et l'état est marqué « non enregistré » (la confirmation visuelle est un
@@ -438,22 +420,19 @@ def test_manual_add_equipment_confirms_and_clears_field(monkeypatch):
     assert not at.exception
 
 
-@pytest.mark.skip(reason=_AGGRID_SKIP)
 def test_roster_search_filters_resources(monkeypatch):
     """La barre de recherche masque les ressources dont le nom ne correspond pas."""
     at = _open_day_for_entry(monkeypatch, personnel=("Alice", "Bob"))
-    acts = _acts_pills(at, "Lundi")
-    acts.set_value(["C01 - Test"]).run()
     _goto_saisie(at)
-    # les deux ressources sont visibles au départ
-    keys = [n.key for n in at.number_input]
-    assert "h_Lundi_Jour_Alice_C01 - Test" in keys and "h_Lundi_Jour_Bob_C01 - Test" in keys
+    # les deux cartes (multiselect d'activités par ressource) sont visibles au départ
+    keys = [m.key for m in at.multiselect]
+    assert "acts_Lundi_Jour_Alice" in keys and "acts_Lundi_Jour_Bob" in keys
     # filtrer sur « Alice »
     search = [t for t in at.text_input if t.key == "roster_search_Lundi_Jour"][0]
     search.set_value("alice").run()  # insensible à la casse
-    keys = [n.key for n in at.number_input]
-    assert "h_Lundi_Jour_Alice_C01 - Test" in keys
-    assert "h_Lundi_Jour_Bob_C01 - Test" not in keys
+    keys = [m.key for m in at.multiselect]
+    assert "acts_Lundi_Jour_Alice" in keys
+    assert "acts_Lundi_Jour_Bob" not in keys
     assert not at.exception
 
 
@@ -515,9 +494,8 @@ def test_day_entry_no_activity_shows_info(monkeypatch):
     at.session_state["view"] = "day_entry"
     at.run()
     _goto_saisie(at)
-    infos = " ".join((m.value or "") for m in at.info)
-    assert "activité" in infos.lower()
-    assert not any((n.key or "").startswith("h_Lundi_Jour_Alice_") for n in at.number_input)
+    # aucune activité disponible -> aucun champ TR pour Alice
+    assert not any((n.key or "").startswith("tr_Lundi_Jour_Alice_") for n in at.number_input)
     assert not at.exception
 
 
@@ -532,14 +510,12 @@ def test_add_quart_creates_second_quart(monkeypatch):
     assert not at.exception
 
 
-@pytest.mark.skip(reason=_AGGRID_SKIP)
 def test_hours_are_distinct_per_quart(monkeypatch):
     at = _open_day_for_entry(monkeypatch)
-    # activité + heures sur Jour
-    acts = _acts_pills(at, "Lundi")
-    acts.set_value(["C01 - Test"]).run()
+    # activité + heures sur Jour (carte par ressource)
     _goto_saisie(at)
-    [n for n in at.number_input if n.key == "h_Lundi_Jour_Alice_C01 - Test"][0].set_value(8.0).run()
+    [m for m in at.multiselect if m.key == "acts_Lundi_Jour_Alice"][0].set_value(["C01 - Test"]).run()
+    [n for n in at.number_input if n.key == "tr_Lundi_Jour_Alice_C01 - Test"][0].set_value(8.0).run()
     # le sélecteur de quart est sur l'étape Configuration : y revenir pour ajouter Soir
     _goto_config(at)
     # ajouter Soir (vide) via le popover ＋ ; la vue bascule dessus
@@ -548,7 +524,7 @@ def test_hours_are_distinct_per_quart(monkeypatch):
     # Soir : pas d'heures, activités à choisir indépendamment
     qj = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
     qs = at.session_state["jours"]["Lundi"]["quarts"]["Soir"]
-    assert qj["heures"]["Alice"]["C01 - Test"] == 8.0
+    assert qj["heures"]["Alice"]["C01 - Test"] == {"TR": 8.0, "TS": 0.0}
     assert qs["heures"] == {}
     assert not at.exception
 
@@ -564,18 +540,18 @@ def test_no_quart_remove_button(monkeypatch):
     assert not at.exception
 
 
-@pytest.mark.skip(reason=_AGGRID_SKIP)
 def test_add_quart_can_copy_team_and_activities(monkeypatch):
     at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
-    # enrichir le quart Jour (équipement + responsable) pour vérifier la copie complète
+    # enrichir le quart Jour (équipement + responsable + activités) pour vérifier la copie complète
     jour_q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
     jour_q["equipements"] = ["Camion v1"]
     jour_q["responsable"] = "M. Roy"
-    acts = _acts_pills(at, "Lundi")
-    acts.set_value(["C01 - Test"]).run()
-    # saisir des heures sur Jour -> elles ne doivent PAS être copiées
+    jour_q["activites"] = ["C01 - Test"]
+    at.run()
+    # saisir des heures sur Jour (carte) -> elles ne doivent PAS être copiées
     _goto_saisie(at)
-    [n for n in at.number_input if n.key == "h_Lundi_Jour_Alice_C01 - Test"][0].set_value(5.0).run()
+    [m for m in at.multiselect if m.key == "acts_Lundi_Jour_Alice"][0].set_value(["C01 - Test"]).run()
+    [n for n in at.number_input if n.key == "tr_Lundi_Jour_Alice_C01 - Test"][0].set_value(5.0).run()
     # le popover de copie est sur l'étape Configuration : y revenir
     _goto_config(at)
     # ajouter Soir en copiant depuis Jour via le popover ＋ « Copier depuis Jour »
@@ -590,69 +566,3 @@ def test_add_quart_can_copy_team_and_activities(monkeypatch):
     assert not at.exception
 
 
-# --- Logique de la grille AgGrid (tests unitaires purs, sans AppTest) ---
-
-def test_apply_hours_grid_roundtrip():
-    """Édition d'une ligne → état mis à jour ; ré-appliquer le même DF → aucun changement."""
-    import app
-    quart = _empty_quart_dict()
-    quart["personnel"] = ["Alice", "Bob"]
-    quart["activites"] = ["C01 - Test", "C02 - Autre"]
-    cols = app._quart_columns(quart)
-    df = app._build_hours_df(app._roster(quart), cols, quart)
-    ai = df.index[df["__name"] == "Alice"][0]
-    df.loc[ai, "C01 - Test"] = 8.0
-    df.loc[ai, "Prime ($)"] = 2.5
-    df.loc[ai, "Commentaire"] = "RAS"
-    assert app._apply_hours_grid(quart, df, cols) is True
-    assert quart["heures"]["Alice"] == {"C01 - Test": 8.0}
-    assert quart["prime"]["Alice"] == 2.5
-    assert quart["commentaire_ligne"]["Alice"] == "RAS"
-    assert "Bob" not in quart["heures"]            # ligne sans heures → pas d'entrée
-    assert app._apply_hours_grid(quart, df, cols) is False   # idempotent
-
-
-def test_apply_hours_grid_clears_emptied_cell():
-    """Mettre une cellule à 0 retire l'entrée correspondante."""
-    import app
-    quart = _empty_quart_dict()
-    quart["personnel"] = ["Alice"]
-    quart["activites"] = ["C01 - Test"]
-    quart["heures"] = {"Alice": {"C01 - Test": 8.0}}
-    cols = app._quart_columns(quart)
-    df = app._build_hours_df(app._roster(quart), cols, quart)
-    df.loc[df.index[0], "C01 - Test"] = 0.0
-    assert app._apply_hours_grid(quart, df, cols) is True
-    assert "Alice" not in quart["heures"]
-
-
-def test_apply_hours_grid_preserves_filtered_rows():
-    """_apply ne touche que les ressources présentes dans le DF (recherche filtrée)."""
-    import app
-    quart = _empty_quart_dict()
-    quart["personnel"] = ["Alice", "Bob"]
-    quart["activites"] = ["C01 - Test"]
-    quart["heures"] = {"Bob": {"C01 - Test": 4.0}}
-    cols = app._quart_columns(quart)
-    df = app._build_hours_df([("Alice", "P")], cols, quart)   # DF ne contient qu'Alice
-    df.loc[df.index[0], "C01 - Test"] = 6.0
-    app._apply_hours_grid(quart, df, cols)
-    assert quart["heures"]["Alice"] == {"C01 - Test": 6.0}
-    assert quart["heures"]["Bob"] == {"C01 - Test": 4.0}      # Bob (filtré) préservé
-
-
-def test_build_hours_df_columns_and_total():
-    """Le DF expose __name caché, une colonne par activité, et un Total correct."""
-    import app
-    quart = _empty_quart_dict()
-    quart["personnel"] = ["Alice"]
-    quart["activites"] = ["C01 - Test", "C02 - Autre"]
-    quart["heures"] = {"Alice": {"C01 - Test": 3.0, "C02 - Autre": 0.5}}
-    cols = app._quart_columns(quart)
-    df = app._build_hours_df(app._roster(quart), cols, quart)
-    assert list(df.columns) == ["__name", "Ressource", "C01 - Test", "C02 - Autre",
-                                "Prime ($)", "Commentaire", "Total"]
-    row = df.iloc[0]
-    assert row["__name"] == "Alice"
-    assert "Alice" in row["Ressource"]
-    assert row["Total"] == 3.5

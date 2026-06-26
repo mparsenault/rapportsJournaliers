@@ -13,7 +13,6 @@ from io import BytesIO
 
 import pandas as pd
 import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 import data_source
 import reports
 
@@ -127,8 +126,10 @@ def _report_key():
 
 
 def _clear_quart_widget_state(jour, quart_name):
-    prefixes = (f"h_{jour}_{quart_name}_", f"p_{jour}_{quart_name}_",
-                f"c_{jour}_{quart_name}_", f"acts_{jour}_{quart_name}",
+    prefixes = (f"tr_{jour}_{quart_name}_", f"ts_{jour}_{quart_name}_",
+                f"eqc_{jour}_{quart_name}_", f"eqh_{jour}_{quart_name}_",
+                f"p_{jour}_{quart_name}_", f"c_{jour}_{quart_name}_",
+                f"acts_{jour}_{quart_name}",
                 f"cond_pills_{jour}_{quart_name}",
                 f"{jour}_{quart_name}_temp_am", f"{jour}_{quart_name}_temp_pm",
                 f"{jour}_{quart_name}_cond", f"roster_search_{jour}_{quart_name}",
@@ -334,58 +335,8 @@ def _quart_activities(quart):
     acts = {a for acts in (quart.get("heures") or {}).values() for a in acts}
     return sorted(acts)
 
-def _quart_columns(quart):
-    """Colonnes activité pour la grille (config du quart). Alias de compatibilité UI."""
-    return list(quart["activites"]) + list(quart["autres"])
-
 def _quart_total(quart):
     return float(sum(_resource_total(quart, r) for r in quart["heures"]))
-
-def _build_hours_df(roster, cols_labels, quart):
-    """DataFrame pour la grille AgGrid : 1 ligne/ressource, 1 colonne/activité,
-    + Prime / Commentaire / Total. La colonne cachée __name porte le nom brut
-    (clé de réécriture), Ressource l'affichage avec icône."""
-    rows = []
-    for name, typ in roster:
-        h = quart["heures"].get(name, {})
-        row = {"__name": name, "Ressource": f"{'👷' if typ == 'P' else '🚜'} {name}"}
-        for c in cols_labels:
-            row[c] = _to_hours(h.get(c))
-        row["Prime ($)"] = _to_hours(quart["prime"].get(name))
-        row["Commentaire"] = quart["commentaire_ligne"].get(name, "")
-        row["Total"] = float(sum(_to_hours(h.get(c)) for c in cols_labels))
-        rows.append(row)
-    columns = ["__name", "Ressource"] + list(cols_labels) + ["Prime ($)", "Commentaire", "Total"]
-    return pd.DataFrame(rows, columns=columns)
-
-def _apply_hours_grid(quart, df, cols_labels):
-    """Réécrit l'état du quart depuis le DataFrame édité de la grille. Ne touche
-    QUE les ressources présentes dans df (préserve les lignes filtrées par la
-    recherche). Renvoie True si quelque chose a changé."""
-    changed = False
-    for _, row in df.iterrows():
-        name = row["__name"]
-        h = {c: v for c in cols_labels for v in [_to_hours(row.get(c))] if v > 0}
-        if h:
-            if quart["heures"].get(name) != h:
-                quart["heures"][name] = h; changed = True
-        elif name in quart["heures"]:
-            quart["heures"].pop(name); changed = True
-
-        p = _to_hours(row.get("Prime ($)"))
-        if p > 0:
-            if quart["prime"].get(name) != p:
-                quart["prime"][name] = p; changed = True
-        elif name in quart["prime"]:
-            quart["prime"].pop(name); changed = True
-
-        com = str(row.get("Commentaire") or "").strip()
-        if com:
-            if quart["commentaire_ligne"].get(name) != com:
-                quart["commentaire_ligne"][name] = com; changed = True
-        elif name in quart["commentaire_ligne"]:
-            quart["commentaire_ligne"].pop(name); changed = True
-    return changed
 
 def _day_total(day):
     return float(sum(_quart_total(q) for q in day["quarts"].values()))
@@ -1078,6 +1029,76 @@ def _current_quart_name(jour):
     return st.session_state[key]
 
 
+def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
+    """Carte de saisie d'une ressource : activités (TR/TS), équipement (employé), prime, commentaire."""
+    # --- Activités de la ressource (choisies parmi toutes les activités du projet) ---
+    ms_key = f"acts_{jour}_{quart_name}_{name}"
+    current_acts = list(quart["heures"].get(name, {}).keys())
+    if ms_key not in st.session_state:
+        st.session_state[ms_key] = current_acts
+    options = sorted(set(all_activities) | set(current_acts))
+    sel_acts = st.multiselect("Activités", options, key=ms_key,
+                              placeholder="🔍 Activités travaillées…", on_change=_mark_dirty)
+
+    new_heures = {}
+    for act in (sel_acts or []):
+        pair = quart["heures"].get(name, {}).get(act, {})
+        ca, cb, _ = st.columns([1, 1, 3])
+        tr_key = f"tr_{jour}_{quart_name}_{name}_{act}"
+        ts_key = f"ts_{jour}_{quart_name}_{name}_{act}"
+        st.session_state.setdefault(tr_key, _to_hours(pair.get("TR")))
+        st.session_state.setdefault(ts_key, _to_hours(pair.get("TS")))
+        tr = ca.number_input(f"TR — {act.split(' - ')[0]}", key=tr_key, min_value=0.0,
+                             step=0.5, format="%.1f", on_change=_mark_dirty)
+        ts = cb.number_input(f"TS — {act.split(' - ')[0]}", key=ts_key, min_value=0.0,
+                             step=0.5, format="%.1f", on_change=_mark_dirty)
+        if tr > 0 or ts > 0:
+            new_heures[act] = {"TR": float(tr), "TS": float(ts)}
+    if new_heures:
+        quart["heures"][name] = new_heures
+    elif name in quart["heures"]:
+        del quart["heures"][name]
+
+    # --- Équipement rattaché à l'employé (personnel uniquement) ---
+    if typ == "P":
+        ce1, ce2 = st.columns([3, 1])
+        eqc_key = f"eqc_{jour}_{quart_name}_{name}"
+        if eqc_key not in st.session_state:
+            st.session_state[eqc_key] = list(quart["equip_codes"].get(name, []))
+        codes = ce1.pills("Équipement", EQUIP_CODE_VALUES, selection_mode="multi",
+                          format_func=_equip_code_label, key=eqc_key, on_change=_mark_dirty)
+        if codes:
+            quart["equip_codes"][name] = list(codes)
+        elif name in quart["equip_codes"]:
+            del quart["equip_codes"][name]
+        eqh_key = f"eqh_{jour}_{quart_name}_{name}"
+        st.session_state.setdefault(eqh_key, _to_hours(quart["equip_hours"].get(name)))
+        eqh = ce2.number_input("Hrs Éq.", key=eqh_key, min_value=0.0, step=0.5,
+                               format="%.1f", on_change=_mark_dirty)
+        if eqh > 0:
+            quart["equip_hours"][name] = float(eqh)
+        elif name in quart["equip_hours"]:
+            del quart["equip_hours"][name]
+
+    # --- Prime + commentaire ---
+    cp, cc = st.columns([1, 3])
+    p_key = f"p_{jour}_{quart_name}_{name}"
+    st.session_state.setdefault(p_key, _to_hours(quart["prime"].get(name)))
+    prime = cp.number_input("Prime ($)", key=p_key, min_value=0.0, step=0.5,
+                            format="%.2f", on_change=_mark_dirty)
+    if prime > 0:
+        quart["prime"][name] = float(prime)
+    elif name in quart["prime"]:
+        del quart["prime"][name]
+    c_key = f"c_{jour}_{quart_name}_{name}"
+    st.session_state.setdefault(c_key, quart["commentaire_ligne"].get(name, ""))
+    com = cc.text_input("Commentaire", key=c_key, on_change=_mark_dirty)
+    if com.strip():
+        quart["commentaire_ligne"][name] = com.strip()
+    elif name in quart["commentaire_ligne"]:
+        del quart["commentaire_ligne"][name]
+
+
 def view_day_entry():
     jour = st.session_state.active_day
     day_idx = JOURS.index(jour)
@@ -1290,55 +1311,23 @@ def view_day_entry():
             st.session_state.day_entry_step = "config"
             st.rerun()
         sb_top2.markdown(f"**Quart : {quart_name}**")
-        cols_labels = _quart_columns(quart)
+        full_roster = _roster(quart)
         hd1, hd2 = st.columns([2, 1])
         hd1.markdown("#### 🕐 Saisie des heures")
         query = hd2.text_input("Rechercher une ressource", key=f"roster_search_{jour}_{quart_name}",
                                placeholder="🔍 Rechercher une ressource…",
                                label_visibility="collapsed").strip().lower()
-        full_roster = _roster(quart)
-        roster = [(name, typ) for name, typ in full_roster if query in name.lower()] if query else full_roster
+        roster = [(n, t) for n, t in full_roster if query in n.lower()] if query else full_roster
+        all_activities = data_source.get_activities(st.session_state.projet.get("id_project"))
         if not full_roster:
             st.info("💡 Commencez par sélectionner le **personnel / équipements** dans la configuration.")
-        elif not cols_labels:
-            st.info("💡 Sélectionnez une ou plusieurs **Activités** dans la configuration.")
         elif not roster:
             st.info("🔍 Aucune ressource ne correspond à la recherche.")
         else:
-            # Grille AgGrid (spike) : en-tête figé nativement + scroll interne via
-            # hauteur fixe. Édition « live » : chaque changement de cellule réécrit
-            # l'état (via _apply_hours_grid) et marque « non enregistré ».
-            df = _build_hours_df(roster, cols_labels, quart)
-            gob = GridOptionsBuilder.from_dataframe(df)
-            # flex = largeurs proportionnelles qui remplissent toute la largeur du
-            # conteneur (mêmes poids que l'ancienne grille : Ressource 3, activités 1,
-            # Prime 1, Commentaire 2, Total 1). minWidth garde la lisibilité tactile.
-            gob.configure_default_column(editable=False, sortable=False,
-                                         suppressMovable=True, resizable=True)
-            gob.configure_column("__name", hide=True)
-            gob.configure_column("Ressource", editable=False, flex=3, minWidth=200, pinned=None)
-            for c in cols_labels:
-                gob.configure_column(c, headerName=c.split(" - ")[0][:10], editable=True,
-                                     type=["numericColumn"], flex=1, minWidth=70)
-            gob.configure_column("Prime ($)", editable=True, type=["numericColumn"], flex=1, minWidth=80)
-            gob.configure_column("Commentaire", editable=True, flex=2, minWidth=140)
-            gob.configure_column("Total", editable=False, type=["numericColumn"], flex=1, minWidth=70)
-            gob.configure_grid_options(rowHeight=40, headerHeight=38)
-            # Police un peu plus grande (le CSS global de l'app n'atteint pas le composant).
-            hours_grid_css = {
-                ".ag-cell": {"font-size": "15px !important"},
-                ".ag-header-cell-text": {"font-size": "14px !important"},
-            }
-            grid = AgGrid(df, gridOptions=gob.build(),
-                          update_mode=GridUpdateMode.VALUE_CHANGED,
-                          height=440, fit_columns_on_grid_load=False,
-                          allow_unsafe_jscode=False, custom_css=hours_grid_css,
-                          key=f"hours_grid_{jour}_{quart_name}")
-            # AgGrid renvoie les données éditées ; sous AppTest (composant custom non
-            # rendu) grid peut être None/vide → on garde l'état tel quel.
-            edited = grid.get("data") if isinstance(grid, dict) else getattr(grid, "data", None)
-            if edited is not None and len(edited) and _apply_hours_grid(quart, edited, cols_labels):
-                _mark_dirty()
+            for name, typ in roster:
+                icon = "👷" if typ == "P" else "🚜"
+                with st.expander(f"{icon} {name} — {_resource_total(quart, name):.1f} h", expanded=True):
+                    _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
         st.divider()
         quart["description"] = st.text_input("📝 Note du quart", quart["description"],
                                              placeholder="Commentaire sur le quart...",
