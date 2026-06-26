@@ -394,7 +394,7 @@ def _day_total(day):
 # Export Excel
 # --------------------------------------------------------------------------
 def _legacy_day(quart):
-    acts = list(quart["activites"])[:8]
+    acts = _quart_activities(quart)[:8]
     autres = list(quart["autres"])[:4]
     headers = {f"h{i}": "" for i in range(8)}
     headers.update({f"a{i}": "" for i in range(4)})
@@ -406,7 +406,7 @@ def _legacy_day(quart):
         headers[f"a{i}"] = lbl
         label_to_key[lbl] = f"a{i}"
 
-    def build_df(resources, label_col):
+    def build_df(resources, label_col, with_equip=False):
         recs = []
         for name in resources:
             h = quart["heures"].get(name, {})
@@ -415,18 +415,27 @@ def _legacy_day(quart):
                 rec[k] = None
             for label, key in label_to_key.items():
                 if label in h:
-                    rec[key] = float(h[label])
+                    rec[key] = _pair_total(h[label])
+            rec["TR"] = float(sum(_to_hours(p.get("TR")) for p in h.values()))
+            rec["TS"] = float(sum(_to_hours(p.get("TS")) for p in h.values()))
+            if with_equip:
+                rec["Hrs Éq."] = quart["equip_hours"].get(name)
+                rec["Code Éq."] = ", ".join(quart["equip_codes"].get(name, []))
             rec["Prime"] = quart["prime"].get(name)
             rec["Commentaire"] = quart["commentaire_ligne"].get(name, "")
             recs.append(rec)
-        return pd.DataFrame(recs, columns=[label_col] + HOUR_KEYS + ["Prime", "Commentaire"])
+        cols = [label_col] + HOUR_KEYS + ["TR", "TS"]
+        if with_equip:
+            cols += ["Hrs Éq.", "Code Éq."]
+        cols += ["Prime", "Commentaire"]
+        return pd.DataFrame(recs, columns=cols)
 
     return {
         "description": quart.get("description", ""),
         "responsable": quart.get("responsable", ""),
         "temp_am": quart.get("temp_am"), "temp_pm": quart.get("temp_pm"),
         "conditions": quart.get("conditions", []), "headers": headers,
-        "pers": build_df(quart.get("personnel", []), "Nom"),
+        "pers": build_df(quart.get("personnel", []), "Nom", with_equip=True),
         "equip": build_df(quart.get("equipements", []), "Véhicule"),
     }
 

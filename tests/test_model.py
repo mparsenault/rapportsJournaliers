@@ -84,13 +84,16 @@ def test_day_quart_names_ordered():
 def test_legacy_day_maps_labels_to_keys():
     leg = app._legacy_day(_sample_quart())
     assert leg["headers"]["h0"] == "Excavation"
-    assert leg["headers"]["a0"] == "P-77"
+    assert leg["headers"]["h1"] == "P-77"
     pers, equip = leg["pers"], leg["equip"]
     for k in app.HOUR_KEYS:
         assert k in pers.columns and k in equip.columns
     assert list(pers["Nom"]) == ["Mathis", "Roy"]
     mathis = pers[pers["Nom"] == "Mathis"].iloc[0]
-    assert mathis["h0"] == 4.0 and mathis["a0"] == 2.0
+    assert mathis["h0"] == 4.0          # Excavation : TR+TS = 4+0
+    assert mathis["h1"] == 3.0          # P-77 : TR+TS = 2+1
+    assert mathis["TR"] == 6.0 and mathis["TS"] == 1.0
+    assert mathis["Hrs Éq."] == 10.0 and mathis["Code Éq."] == "C, N"
     assert mathis["Prime"] == 2.0 and mathis["Commentaire"] == "test"
     assert list(equip["Véhicule"]) == ["Camion v1892"]
     camion = equip[equip["Véhicule"] == "Camion v1892"].iloc[0]
