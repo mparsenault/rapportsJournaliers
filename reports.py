@@ -154,7 +154,12 @@ _DDL_STATEMENTS = [
 
 
 def _connection():
-    return st.connection("postgres", type="sql")
+    # pool_pre_ping : teste la connexion (SELECT 1) avant de la prêter et se
+    # reconnecte si elle est morte. Neon suspend le compute après quelques
+    # minutes d'inactivité, ce qui ferme la connexion SSL côté serveur ; sans
+    # cela, le premier INSERT échoue avec « SSL connection has been closed
+    # unexpectedly ». pool_recycle force le renouvellement avant ce délai.
+    return st.connection("postgres", type="sql", pool_pre_ping=True, pool_recycle=300)
 
 
 def ensure_schema():

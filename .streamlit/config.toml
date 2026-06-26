@@ -1,0 +1,8 @@
+[theme]
+# Identité visuelle Ondel — turquoise pour la structure (bandeaux, en-têtes,
+# onglet actif), marine du logo comme couleur d'accent des éléments interactifs.
+primaryColor = "#26313F"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#EEF8F9"
+textColor = "#0E2A2E"
+font = "sans serif"

@@ -44,7 +44,9 @@ def activity_labels_from_df(df):
 
 
 def _connection():
-    return st.connection("postgres", type="sql")
+    # pool_pre_ping + pool_recycle : évite « SSL connection has been closed
+    # unexpectedly » quand Neon a suspendu le compute (cf. reports._connection).
+    return st.connection("postgres", type="sql", pool_pre_ping=True, pool_recycle=300)
 
 
 def get_projects():
