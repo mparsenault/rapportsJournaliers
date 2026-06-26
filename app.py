@@ -1117,79 +1117,55 @@ def view_day_entry():
     if step == "config":
         st.markdown("### Configuration du quart")
         st.caption("Configurez les activités, la météo et le personnel avant de saisir les heures.")
-        col_act, col_meteo = st.columns(2)
-
-        with col_act:
-            with st.container(border=True, key="acts_box"):
-                ah = st.columns([3, 1], vertical_alignment="center")
-                ah[0].markdown("🏗️ **Activités du quart**")
-                ah[1].markdown(
-                    f'<div class="count-chip">{len(quart["activites"])} / 7</div>',
-                    unsafe_allow_html=True)
-                _acts_options = sorted(set(data_source.get_activities(st.session_state.projet.get("id_project")))
-                                       | set(quart["activites"]))
-                # Liste déroulante avec recherche intégrée (type-to-filter de st.multiselect) :
-                # adaptée aux centaines d'activités d'un projet. Seed unique de l'état via
-                # session_state (pas de default= avec key=, qui absorberait le 1ᵉʳ clic).
-                acts_key = f"acts_{jour}_{quart_name}"
-                if acts_key not in st.session_state:
-                    st.session_state[acts_key] = list(quart["activites"])
-                _sel_acts = st.multiselect(
-                    "Activités du quart", _acts_options,
-                    key=acts_key, label_visibility="collapsed",
-                    placeholder="🔍 Rechercher une activité…", on_change=_mark_dirty)
-                quart["activites"] = list(_sel_acts or [])
-
-        with col_meteo:
-            with st.container(border=True, key="meteo_card"):
-                header_cols = st.columns([3, 1], vertical_alignment="center")
-                header_cols[0].markdown("🌤️ **Météo**")
-                proj = st.session_state.projet
-                has_date = day.get("date") is not None
-                if not has_date:
-                    st.caption("⚠️ Date non définie")
-                _geo_msg = st.session_state.pop(f"geo_msg_{jour}_{quart_name}", None)
-                if _geo_msg:
-                    (st.success if _geo_msg[0] == "success" else st.warning)(_geo_msg[1])
-                if header_cols[1].button("📍 GPS", key=f"{jour}_{quart_name}_geo",
-                            disabled=not has_date, help="Utiliser ma position GPS actuelle",
-                            use_container_width=True):
-                    st.session_state[f"show_geoloc_{jour}_{quart_name}"] = True
-                    st.rerun()
-                if st.session_state.get(f"show_geoloc_{jour}_{quart_name}"):
-                    from streamlit_js_eval import get_geolocation
-                    loc = get_geolocation(component_key=f"geoloc_{jour}_{quart_name}")
-                    if loc and isinstance(loc, dict) and loc.get("coords"):
-                        lat = loc["coords"].get("latitude")
-                        lon = loc["coords"].get("longitude")
-                        st.session_state.pop(f"show_geoloc_{jour}_{quart_name}", None)
-                        if lat is not None and lon is not None:
-                            proj["lat"] = float(lat); proj["lon"] = float(lon)
-                            success = _fill_weather_for_quart(jour, quart_name)
-                            st.session_state[f"{jour}_{quart_name}_temp_am"] = quart["temp_am"]
-                            st.session_state[f"{jour}_{quart_name}_temp_pm"] = quart["temp_pm"]
-                            st.session_state[f"cond_pills_{jour}_{quart_name}"] = [c for c in (quart["conditions"] or []) if c in CONDITIONS]
-                            st.session_state[f"geo_msg_{jour}_{quart_name}"] = (
-                                ("success", f"Position {proj['lat']:.4f}, {proj['lon']:.4f} — météo récupérée.")
-                                if success else
-                                ("warning", "Position trouvée mais météo indisponible pour cette date."))
-                            st.rerun()
-                    else:
-                        st.caption("📡 Autorisez la géolocalisation dans le navigateur…")
-                temp_cols = st.columns(2)
-                st.session_state.setdefault(f"{jour}_{quart_name}_temp_am", quart["temp_am"])
-                st.session_state.setdefault(f"{jour}_{quart_name}_temp_pm", quart["temp_pm"])
-                quart["temp_am"] = temp_cols[0].number_input("Température AM (°C)",
-                                          key=f"{jour}_{quart_name}_temp_am", step=1.0, format="%.1f")
-                quart["temp_pm"] = temp_cols[1].number_input("Température PM (°C)",
-                                          key=f"{jour}_{quart_name}_temp_pm", step=1.0, format="%.1f")
-                st.caption("Conditions météo")
-                cond_key = f"cond_pills_{jour}_{quart_name}"
-                if cond_key not in st.session_state:
-                    st.session_state[cond_key] = [c for c in (quart["conditions"] or []) if c in CONDITIONS]
-                _sel_cond = st.pills("Conditions météo", CONDITIONS, selection_mode="multi",
-                                     key=cond_key, label_visibility="collapsed", on_change=_mark_dirty)
-                quart["conditions"] = list(_sel_cond or [])
+        with st.container(border=True, key="meteo_card"):
+            header_cols = st.columns([3, 1], vertical_alignment="center")
+            header_cols[0].markdown("🌤️ **Météo**")
+            proj = st.session_state.projet
+            has_date = day.get("date") is not None
+            if not has_date:
+                st.caption("⚠️ Date non définie")
+            _geo_msg = st.session_state.pop(f"geo_msg_{jour}_{quart_name}", None)
+            if _geo_msg:
+                (st.success if _geo_msg[0] == "success" else st.warning)(_geo_msg[1])
+            if header_cols[1].button("📍 GPS", key=f"{jour}_{quart_name}_geo",
+                        disabled=not has_date, help="Utiliser ma position GPS actuelle",
+                        use_container_width=True):
+                st.session_state[f"show_geoloc_{jour}_{quart_name}"] = True
+                st.rerun()
+            if st.session_state.get(f"show_geoloc_{jour}_{quart_name}"):
+                from streamlit_js_eval import get_geolocation
+                loc = get_geolocation(component_key=f"geoloc_{jour}_{quart_name}")
+                if loc and isinstance(loc, dict) and loc.get("coords"):
+                    lat = loc["coords"].get("latitude")
+                    lon = loc["coords"].get("longitude")
+                    st.session_state.pop(f"show_geoloc_{jour}_{quart_name}", None)
+                    if lat is not None and lon is not None:
+                        proj["lat"] = float(lat); proj["lon"] = float(lon)
+                        success = _fill_weather_for_quart(jour, quart_name)
+                        st.session_state[f"{jour}_{quart_name}_temp_am"] = quart["temp_am"]
+                        st.session_state[f"{jour}_{quart_name}_temp_pm"] = quart["temp_pm"]
+                        st.session_state[f"cond_pills_{jour}_{quart_name}"] = [c for c in (quart["conditions"] or []) if c in CONDITIONS]
+                        st.session_state[f"geo_msg_{jour}_{quart_name}"] = (
+                            ("success", f"Position {proj['lat']:.4f}, {proj['lon']:.4f} — météo récupérée.")
+                            if success else
+                            ("warning", "Position trouvée mais météo indisponible pour cette date."))
+                        st.rerun()
+                else:
+                    st.caption("📡 Autorisez la géolocalisation dans le navigateur…")
+            temp_cols = st.columns(2)
+            st.session_state.setdefault(f"{jour}_{quart_name}_temp_am", quart["temp_am"])
+            st.session_state.setdefault(f"{jour}_{quart_name}_temp_pm", quart["temp_pm"])
+            quart["temp_am"] = temp_cols[0].number_input("Température AM (°C)",
+                                      key=f"{jour}_{quart_name}_temp_am", step=1.0, format="%.1f")
+            quart["temp_pm"] = temp_cols[1].number_input("Température PM (°C)",
+                                      key=f"{jour}_{quart_name}_temp_pm", step=1.0, format="%.1f")
+            st.caption("Conditions météo")
+            cond_key = f"cond_pills_{jour}_{quart_name}"
+            if cond_key not in st.session_state:
+                st.session_state[cond_key] = [c for c in (quart["conditions"] or []) if c in CONDITIONS]
+            _sel_cond = st.pills("Conditions météo", CONDITIONS, selection_mode="multi",
+                                 key=cond_key, label_visibility="collapsed", on_change=_mark_dirty)
+            quart["conditions"] = list(_sel_cond or [])
 
        
         with st.container(border=True, key="equipe_box"):
@@ -1287,8 +1263,6 @@ def view_day_entry():
         # Prérequis avant de passer à la saisie des heures (0/négatif = température
         # remplie ; seule l'absence de valeur, None, compte comme « non remplie »).
         missing = []
-        if not quart["activites"]:
-            missing.append("une activité")
         if quart["temp_am"] is None and quart["temp_pm"] is None:
             missing.append("une température (AM ou PM)")
         if not quart.get("personnel"):

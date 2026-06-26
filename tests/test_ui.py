@@ -15,10 +15,6 @@ def app_quarts(at, jour):
     return app._day_quart_names(at.session_state["jours"][jour])
 
 
-def _acts_pills(at, jour, quart="Jour"):
-    """Le widget de sélection d'activités est une liste déroulante (st.multiselect) avec recherche."""
-    return [m for m in at.multiselect if m.key == f"acts_{jour}_{quart}"][0]
-
 
 def _run():
     return AppTest.from_file("app.py", default_timeout=30).run()
@@ -96,8 +92,7 @@ def test_save_and_navigate_advances_to_saisie(monkeypatch):
     import reports
     monkeypatch.setattr(reports, "save_report", lambda *a, **k: None)
     at = _open_day_for_entry(monkeypatch)   # personnel Alice présent
-    # Satisfaire les prérequis (activité + température) pour activer le bouton.
-    _acts_pills(at, "Lundi").set_value(["C01 - Test"]).run()
+    # Prérequis désormais : personnel + température (plus d'activité en config).
     [n for n in at.number_input if n.key == "Lundi_Jour_temp_am"][0].set_value(5.0).run()
     [b for b in at.button if b.key == "save_next_Lundi"][0].click().run()
     assert at.session_state["day_entry_step"] == "saisie"
@@ -119,11 +114,10 @@ def test_back_returns_to_config(monkeypatch):
 
 
 def test_save_next_disabled_until_requirements_met(monkeypatch):
-    """Le bouton de l'étape Config est bloqué tant qu'il manque activité,
-    température OU personnel ; il s'active une fois les trois remplis."""
+    """Le bouton de l'étape Config est bloqué tant qu'il manque température
+    OU personnel ; il s'active une fois les deux remplis."""
     at = _open_day_for_entry(monkeypatch, personnel=())   # rien de rempli
     assert [b for b in at.button if b.key == "save_next_Lundi"][0].disabled
-    _acts_pills(at, "Lundi").set_value(["C01 - Test"]).run()
     [t for t in at.text_input if t.key == "new_employee_Lundi_Jour"][0].set_value("Alice").run()
     [b for b in at.button if b.key == "add_manual_Lundi_Jour"][0].click().run()
     [n for n in at.number_input if n.key == "Lundi_Jour_temp_am"][0].set_value(12.0).run()
@@ -132,10 +126,9 @@ def test_save_next_disabled_until_requirements_met(monkeypatch):
 
 
 def test_save_next_requires_temperature(monkeypatch):
-    """Règle température isolée : activité + personnel présents mais température vide
+    """Règle température isolée : personnel présent mais température vide
     → bouton bloqué ; une température (même 0/négative) le débloque."""
     at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
-    _acts_pills(at, "Lundi").set_value(["C01 - Test"]).run()
     assert [b for b in at.button if b.key == "save_next_Lundi"][0].disabled  # temp vide
     [n for n in at.number_input if n.key == "Lundi_Jour_temp_am"][0].set_value(0.0).run()
     assert not [b for b in at.button if b.key == "save_next_Lundi"][0].disabled
@@ -265,24 +258,6 @@ def test_dashboard_shows_error_when_db_unreachable(monkeypatch):
     assert not at.exception
 
 
-def test_day_activities_come_from_db(monkeypatch):
-    import data_source
-    monkeypatch.setattr(data_source, "get_projects", lambda: [(1, "P-100", "Alpha")])
-    monkeypatch.setattr(data_source, "get_activities",
-                        lambda pid: ["C01 - Test"] if pid == 1 else [])
-    at = AppTest.from_file("app.py", default_timeout=30)
-    at.session_state["projet"] = {"no": "P-100", "id_project": 1,
-                                  "semaine": datetime.date(2026, 6, 7),
-                                  "adresse": "", "lat": None, "lon": None}
-    at.session_state["jours"] = {j: {"date": None, "quarts": {"Jour": _empty_quart_dict()}}
-                                  for j in ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]}
-    at.session_state["active_day"] = "Lundi"
-    at.session_state["view"] = "day_entry"
-    at.run()
-    acts = _acts_pills(at, "Lundi")
-    assert [getattr(o, "content", o) for o in acts.options] == ["C01 - Test"]
-    assert not at.exception
-
 
 def test_day_cards_are_clickable_and_no_saisir_button(monkeypatch):
     at = _run_with_project(monkeypatch)
@@ -338,34 +313,6 @@ def test_fields_enabled_after_project_selected(monkeypatch):
     export = [b for b in at.button if "EXPORT" in (b.label or "")][0]
     assert not export.disabled
 
-
-def test_multiselect_keeps_incremental_activities(monkeypatch):
-    """Ajouter une 2e activité ne doit pas retirer la 1re (pas de reset du widget
-    dû à un `default` recalculé à partir de sa propre sortie)."""
-    import data_source
-    monkeypatch.setattr(data_source, "get_projects", lambda: [(1, "P-100", "Alpha")])
-    monkeypatch.setattr(data_source, "get_activities",
-                        lambda pid: ["C01 - A", "C02 - B", "C03 - C"])
-    at = AppTest.from_file("app.py", default_timeout=30)
-    at.session_state["projet"] = {"no": "P-100", "id_project": 1,
-                                  "semaine": datetime.date(2026, 6, 7),
-                                  "adresse": "", "lat": None, "lon": None}
-    q = _empty_quart_dict()
-    q["personnel"] = ["Alice"]
-    at.session_state["jours"] = {j: {"date": None, "quarts": {"Jour": _empty_quart_dict()}}
-                                  for j in ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]}
-    at.session_state["jours"]["Lundi"] = {"date": datetime.date(2026, 6, 8),
-                                           "quarts": {"Jour": q}}
-    at.session_state["active_day"] = "Lundi"
-    at.session_state["view"] = "day_entry"
-    at.run()
-    ms = _acts_pills(at, "Lundi")
-    ms.set_value(["C01 - A"]).run()
-    assert at.session_state["jours"]["Lundi"]["quarts"]["Jour"]["activites"] == ["C01 - A"]
-    ms = _acts_pills(at, "Lundi")
-    ms.set_value(["C01 - A", "C02 - B"]).run()
-    assert at.session_state["jours"]["Lundi"]["quarts"]["Jour"]["activites"] == ["C01 - A", "C02 - B"]
-    assert not at.exception
 
 
 @pytest.mark.skip(reason=_AGGRID_SKIP)
@@ -576,16 +523,12 @@ def test_day_entry_no_activity_shows_info(monkeypatch):
 
 def test_add_quart_creates_second_quart(monkeypatch):
     at = _open_day_for_entry(monkeypatch)
-    # un seul quart au départ
     assert list(at.session_state["jours"]["Lundi"]["quarts"].keys()) == ["Jour"]
-    # ajouter « Soir » via le popover ＋ (bouton « Vide »)
     [b for b in at.button if b.key == "empty_quart_Lundi_Soir"][0].click().run()
     assert app_quarts(at, "Lundi") == ["Jour", "Soir"]
-    # la vue bascule immédiatement sur le quart ajouté (pas un cycle de retard) :
-    # la vue se rend contre « Soir », d'où la clé acts_Lundi_Soir.
+    # la vue bascule immédiatement sur le quart ajouté : le bouton de quart « Soir » est actif (primary)
     assert at.session_state["active_quart_Lundi"] == "Soir"
-    assert any(m.key == "acts_Lundi_Soir" for m in at.multiselect)
-    assert not any(m.key == "acts_Lundi_Jour" for m in at.multiselect)
+    assert any(b.key == "quart_pick_Lundi_Soir" for b in at.button)
     assert not at.exception
 
 
