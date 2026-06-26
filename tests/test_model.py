@@ -40,6 +40,21 @@ def test_pair_total():
     assert app._pair_total({}) == 0.0
 
 
+def test_pair_total_tolerates_legacy_scalar():
+    # Un état hérité (ancien format {activité: heures}) ne doit pas planter :
+    # une valeur scalaire est comptée comme du temps régulier.
+    assert app._pair_total(8.0) == 8.0
+    assert app._pair_total(None) == 0.0
+    assert app._norm_pair(8.0) == {"TR": 8.0, "TS": 0.0}
+
+
+def test_resource_total_tolerates_legacy_scalar_heures():
+    q = app._empty_quart()
+    q["heures"] = {"Alice": {"Excavation": 6.0}}   # ancien format scalaire
+    assert app._resource_total(q, "Alice") == 6.0
+    assert app._quart_total(q) == 6.0
+
+
 def test_resource_total():
     q = _sample_quart()
     assert app._resource_total(q, "Mathis") == 7.0      # (4+0) + (2+1)

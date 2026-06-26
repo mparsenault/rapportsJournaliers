@@ -322,10 +322,21 @@ def _to_hours(v):
     except (TypeError, ValueError):
         return 0.0
 
+def _norm_pair(pair):
+    """Normalise une valeur d'heures en couple {'TR','TS'} de float.
+
+    Tolère l'ancien format scalaire ({activité: heures}) — une valeur unique est
+    traitée comme du temps régulier — afin qu'un état hérité (ex. session_state
+    rémanent après un rechargement de code) ne fasse pas planter la lecture.
+    """
+    if isinstance(pair, dict):
+        return {"TR": _to_hours(pair.get("TR")), "TS": _to_hours(pair.get("TS"))}
+    return {"TR": _to_hours(pair), "TS": 0.0}
+
 def _pair_total(pair):
     """Total d'un couple {'TR','TS'} -> float (0 si vide/invalide)."""
-    pair = pair or {}
-    return _to_hours(pair.get("TR")) + _to_hours(pair.get("TS"))
+    p = _norm_pair(pair)
+    return p["TR"] + p["TS"]
 
 def _resource_total(quart, name):
     return float(sum(_pair_total(p) for p in quart["heures"].get(name, {}).values()))
@@ -367,8 +378,8 @@ def _legacy_day(quart):
             for label, key in label_to_key.items():
                 if label in h:
                     rec[key] = _pair_total(h[label])
-            rec["TR"] = float(sum(_to_hours(p.get("TR")) for p in h.values()))
-            rec["TS"] = float(sum(_to_hours(p.get("TS")) for p in h.values()))
+            rec["TR"] = float(sum(_norm_pair(p)["TR"] for p in h.values()))
+            rec["TS"] = float(sum(_norm_pair(p)["TS"] for p in h.values()))
             if with_equip:
                 rec["Hrs Éq."] = quart["equip_hours"].get(name)
                 rec["Code Éq."] = ", ".join(quart["equip_codes"].get(name, []))
@@ -1023,12 +1034,12 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
 
     new_heures = {}
     for act in (sel_acts or []):
-        pair = quart["heures"].get(name, {}).get(act, {})
+        pair = _norm_pair(quart["heures"].get(name, {}).get(act, {}))
         ca, cb, _ = st.columns([1, 1, 3])
         tr_key = f"tr_{jour}_{quart_name}_{name}_{act}"
         ts_key = f"ts_{jour}_{quart_name}_{name}_{act}"
-        st.session_state.setdefault(tr_key, _to_hours(pair.get("TR")))
-        st.session_state.setdefault(ts_key, _to_hours(pair.get("TS")))
+        st.session_state.setdefault(tr_key, pair["TR"])
+        st.session_state.setdefault(ts_key, pair["TS"])
         tr = ca.number_input(f"TR — {act.split(' - ')[0]}", key=tr_key, min_value=0.0,
                              step=0.5, format="%.1f", on_change=_mark_dirty)
         ts = cb.number_input(f"TS — {act.split(' - ')[0]}", key=ts_key, min_value=0.0,
