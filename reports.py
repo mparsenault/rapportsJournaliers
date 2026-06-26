@@ -140,6 +140,12 @@ _DDL_STATEMENTS = [
     # garanti par la stratégie delete-all-then-insert de save_report.
     "alter table report_hours drop constraint if exists report_hours_pkey",
     "alter table report_lines drop constraint if exists report_lines_pkey",
+    # Heures : séparer temps régulier (hours, existant) et temps supplémentaire.
+    # Rétro-compatible : les données existantes comptent comme du TR, hours_ts = 0.
+    "alter table report_hours add column if not exists hours_ts numeric not null default 0",
+    # Équipement rattaché à l'employé : total d'heures + liste de codes (C/N/É/D/G/BT).
+    "alter table report_lines add column if not exists equip_hours numeric",
+    "alter table report_lines add column if not exists equip_codes text[] not null default '{}'",
     # Postgres ne retire PAS le NOT NULL implicite des colonnes quand on drop la
     # PK ci-dessus : day_id reste NOT NULL et bloque les inserts par quart_id
     # (day_id NULL) avec NotNullViolation. On le retire explicitement.

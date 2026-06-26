@@ -33,3 +33,10 @@ def test_save_report_invalid_week_raises():
     projet = {"id_project": 1, "no": "X", "semaine": "lundi"}
     with pytest.raises(ValueError):
         reports.save_report(projet, {}, {}, [])
+
+
+def test_ddl_has_tr_ts_and_equip_migrations():
+    ddl = " ".join(reports._DDL_STATEMENTS)
+    assert "report_hours add column if not exists hours_ts" in ddl
+    assert "report_lines add column if not exists equip_hours" in ddl
+    assert "report_lines add column if not exists equip_codes" in ddl
