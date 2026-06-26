@@ -354,7 +354,7 @@ def load_report(id_project, week_start):
                 heures = {}
                 for h in hrs:
                     heures.setdefault(h["resource_name"], {})[h["activity_label"]] = {
-                        "TR": float(h["hours"]), "TS": float(h["hours_ts"])}
+                        "TR": float(h["hours"]), "TS": float(h["hours_ts"] or 0)}
                 lines = s.execute(
                     text("select resource_name, prime, commentaire, equip_hours, equip_codes "
                          "from report_lines where quart_id = :q"),
