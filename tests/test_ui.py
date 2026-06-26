@@ -560,9 +560,27 @@ def test_add_quart_can_copy_team_and_activities(monkeypatch):
     assert qs["personnel"] == ["Alice"]
     assert qs["equipements"] == ["Camion v1"]
     assert qs["responsable"] == "M. Roy"
-    assert qs["activites"] == ["C01 - Test"]
     assert qs["heures"] == {}     # les heures ne sont PAS copiées
     assert qs["prime"] == {}
+    assert not at.exception
+
+
+def test_copy_day_copies_hours_and_equipment(monkeypatch):
+    at = _open_day_for_entry(monkeypatch, jour="Mardi", personnel=("Alice",))
+    # préparer Lundi (jour précédent) avec heures TR/TS + équipement
+    lundi = at.session_state["jours"]["Lundi"]
+    lundi["date"] = datetime.date(2026, 6, 8)
+    ql = lundi["quarts"]["Jour"]
+    ql["personnel"] = ["Alice"]
+    ql["heures"] = {"Alice": {"C01 - Test": {"TR": 6.0, "TS": 0.0}}}
+    ql["equip_codes"] = {"Alice": ["C"]}
+    ql["equip_hours"] = {"Alice": 4.0}
+    at.run()
+    [b for b in at.button if b.key == "copy_Mardi"][0].click().run()
+    qm = at.session_state["jours"]["Mardi"]["quarts"]["Jour"]
+    assert qm["heures"] == {"Alice": {"C01 - Test": {"TR": 6.0, "TS": 0.0}}}
+    assert qm["equip_codes"] == {"Alice": ["C"]}
+    assert qm["equip_hours"] == {"Alice": 4.0}
     assert not at.exception
 
 

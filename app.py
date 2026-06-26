@@ -962,8 +962,6 @@ def _add_quart(jour, new_quart, copy_from=None):
         src = day["quarts"][copy_from]
         q["personnel"] = list(src["personnel"])
         q["equipements"] = list(src["equipements"])
-        q["activites"] = list(src["activites"])
-        q["autres"] = list(src["autres"])
         q["responsable"] = src["responsable"]
     day["quarts"][new_quart] = q
     st.session_state[f"_pending_active_quart_{jour}"] = new_quart
@@ -1013,8 +1011,10 @@ def _render_quart_selector(jour, day, prev_day=None):
             prev_day_obj = st.session_state.jours[prev_day]
             src = prev_day_obj["quarts"][_day_quart_names(prev_day_obj)[0]]
             quart = day["quarts"][current]
-            quart["activites"] = list(src["activites"])
-            quart["heures"] = {k: dict(v) for k, v in src["heures"].items()}
+            quart["heures"] = {r: {a: dict(p) for a, p in acts.items()}
+                               for r, acts in src["heures"].items()}
+            quart["equip_codes"] = {r: list(c) for r, c in src["equip_codes"].items()}
+            quart["equip_hours"] = dict(src["equip_hours"])
             _clear_quart_widget_state(jour, current)
             _mark_dirty()
             st.rerun()
