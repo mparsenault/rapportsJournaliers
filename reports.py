@@ -140,6 +140,11 @@ _DDL_STATEMENTS = [
     # garanti par la stratégie delete-all-then-insert de save_report.
     "alter table report_hours drop constraint if exists report_hours_pkey",
     "alter table report_lines drop constraint if exists report_lines_pkey",
+    # Postgres ne retire PAS le NOT NULL implicite des colonnes quand on drop la
+    # PK ci-dessus : day_id reste NOT NULL et bloque les inserts par quart_id
+    # (day_id NULL) avec NotNullViolation. On le retire explicitement.
+    "alter table report_hours alter column day_id drop not null",
+    "alter table report_lines alter column day_id drop not null",
     # report_quart_resources : backfill depuis report_resources (équipe semaine -> quart Jour de chaque jour)
     """
     insert into report_quart_resources (quart_id, name, kind)
