@@ -1021,6 +1021,10 @@ def _current_quart_name(jour):
     return st.session_state[key]
 
 
+# Poids des colonnes du tableau d'heures par activité (Activité | TR | TS).
+_HOURS_COLS = [4, 2, 2]
+
+
 def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
     """Carte de saisie d'une ressource : activités (TR/TS), équipement (employé), prime, commentaire."""
     # --- Activités de la ressource (choisies parmi toutes les activités du projet) ---
@@ -1032,18 +1036,24 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
     sel_acts = st.multiselect("Activités", options, key=ms_key,
                               placeholder="🔍 Activités travaillées…", on_change=_mark_dirty)
 
+    if sel_acts:
+        hc1, hc2, hc3 = st.columns(_HOURS_COLS)
+        hc1.markdown("**Activité**")
+        hc2.markdown("**TR**")
+        hc3.markdown("**TS**")
     new_heures = {}
     for act in (sel_acts or []):
         pair = _norm_pair(quart["heures"].get(name, {}).get(act, {}))
-        ca, cb, _ = st.columns([1, 1, 3])
+        ca, cb, cc_ = st.columns(_HOURS_COLS, vertical_alignment="center")
+        ca.markdown(act)
         tr_key = f"tr_{jour}_{quart_name}_{name}_{act}"
         ts_key = f"ts_{jour}_{quart_name}_{name}_{act}"
         st.session_state.setdefault(tr_key, pair["TR"])
         st.session_state.setdefault(ts_key, pair["TS"])
-        tr = ca.number_input(f"TR — {act.split(' - ')[0]}", key=tr_key, min_value=0.0,
-                             step=0.5, format="%.1f", on_change=_mark_dirty)
-        ts = cb.number_input(f"TS — {act.split(' - ')[0]}", key=ts_key, min_value=0.0,
-                             step=0.5, format="%.1f", on_change=_mark_dirty)
+        tr = cb.number_input("TR", key=tr_key, min_value=0.0, step=0.5,
+                             format="%.1f", label_visibility="collapsed", on_change=_mark_dirty)
+        ts = cc_.number_input("TS", key=ts_key, min_value=0.0, step=0.5,
+                              format="%.1f", label_visibility="collapsed", on_change=_mark_dirty)
         if tr > 0 or ts > 0:
             new_heures[act] = {"TR": float(tr), "TS": float(ts)}
     if new_heures:
@@ -1318,7 +1328,7 @@ def view_day_entry():
         else:
             for name, typ in roster:
                 icon = "👷" if typ == "P" else "🚜"
-                with st.expander(f"{icon} {name} — {_resource_total(quart, name):.1f} h", expanded=True):
+                with st.expander(f"{icon} {name} — {_resource_total(quart, name):.1f} h", expanded=False):
                     _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
         st.divider()
         quart["description"] = st.text_input("📝 Note du quart", quart["description"],

@@ -565,6 +565,25 @@ def test_add_quart_can_copy_team_and_activities(monkeypatch):
     assert not at.exception
 
 
+def test_saisie_card_table_header_and_no_repeated_labels(monkeypatch):
+    """Étape Saisie : une activité sélectionnée affiche l'en-tête de tableau
+    Activité/TR/TS, sans étiquette répétée « TR — … », et la saisie écrit
+    toujours dans la forme {"TR","TS"}."""
+    at = _open_day_for_entry(monkeypatch)   # personnel Alice, activité "C01 - Test"
+    _goto_saisie(at)
+    ms = [m for m in at.multiselect if m.key == "acts_Lundi_Jour_Alice"][0]
+    ms.set_value(["C01 - Test"]).run()
+    md = " ".join((m.value or "") for m in at.markdown)
+    assert "Activité" in md and "TR" in md and "TS" in md   # ligne d'en-tête présente
+    labels = [(n.label or "") for n in at.number_input]
+    assert not any(l.startswith("TR —") or l.startswith("TS —") for l in labels)
+    tr = [n for n in at.number_input if n.key == "tr_Lundi_Jour_Alice_C01 - Test"][0]
+    tr.set_value(8.0).run()
+    q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
+    assert q["heures"]["Alice"]["C01 - Test"] == {"TR": 8.0, "TS": 0.0}
+    assert not at.exception
+
+
 def test_copy_day_copies_hours_and_equipment(monkeypatch):
     at = _open_day_for_entry(monkeypatch, jour="Mardi", personnel=("Alice",))
     # préparer Lundi (jour précédent) avec heures TR/TS + équipement
