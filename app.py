@@ -667,15 +667,6 @@ def get_css():
     .st-key-btn_geo_Dimanche button:hover:not(:disabled) {{
         background: {ONDEL_GREEN_DARK} !important;
     }}
-    /* Activités doit aussi avoir une card cohérente avec les sous-cartes Météo */
-    .st-key-acts_box {{
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 14px 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-    }}
     /* Carte Équipe (au-dessus des activités) — même style de carte */
     .st-key-equipe_box {{
         background: #FFFFFF;
@@ -720,15 +711,6 @@ def get_css():
     .st-key-equipe_box button[data-testid="stBaseButton-pillsActive"] p {{
         color: #FFFFFF !important;
     }}
-    /* Champ de sélection des activités : haut (≥230px) pour que la carte Activités
-       atteigne la hauteur de la carte Météo voisine. Les activités choisies
-       s'empilent depuis le haut. min-height fixe (PAS height:%) → aucune oscillation. */
-    .st-key-acts_box [data-baseweb="select"] > div:first-child {{
-        min-height: 230px !important;
-        align-items: flex-start !important;
-        padding: 10px 12px !important;
-    }}
-
     /* === Titres de sections : même taille et même alignement top ===
        On cible le <p> du titre Activités, et UNIQUEMENT le titre Météo (1ʳᵉ
        colonne de la 1ʳᵉ rangée). L'ancêtre [data-testid="stMarkdown"] est
@@ -736,7 +718,6 @@ def get_css():
        labels des number_input (« Température AM/PM »), qui vivent dans
        stWidgetLabel et non dans stMarkdown — sinon « Température AM »
        apparaissait en gras/accent alors que « Température PM » restait normal. */
-    .st-key-acts_box > div:first-child p,
     .st-key-meteo_card [data-testid="stHorizontalBlock"]:first-of-type [data-testid="stColumn"]:first-child [data-testid="stMarkdown"] p {{
         font-size: 1.05rem !important;
         font-weight: 700 !important;
@@ -1007,7 +988,7 @@ def _render_quart_selector(jour, day, prev_day=None):
         # Copie « tout le quart » depuis le 1er quart du jour précédent (inline, à droite).
         if prev_day and cols[-1].button(f"📋 Copier de {prev_day}", key=f"copy_{jour}",
                                         use_container_width=True,
-                                        help="Copie activités et heures du jour précédent"):
+                                        help="Copie heures et équipements du jour précédent"):
             prev_day_obj = st.session_state.jours[prev_day]
             src = prev_day_obj["quarts"][_day_quart_names(prev_day_obj)[0]]
             quart = day["quarts"][current]
