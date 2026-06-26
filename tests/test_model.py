@@ -8,8 +8,8 @@ def test_empty_day_shape():
     assert d["date"] is None
     assert list(d["quarts"].keys()) == ["Jour"]
     q = d["quarts"]["Jour"]
-    assert q["activites"] == [] and q["autres"] == []
     assert q["heures"] == {} and q["prime"] == {} and q["commentaire_ligne"] == {}
+    assert q["equip_codes"] == {} and q["equip_hours"] == {}
     assert q["personnel"] == [] and q["equipements"] == []
     assert q["responsable"] == "" and q["description"] == ""
     assert q["conditions"] == []
@@ -20,13 +20,40 @@ def _sample_quart():
     q = app._empty_quart()
     q["personnel"] = ["Mathis", "Roy"]
     q["equipements"] = ["Camion v1892"]
-    q["activites"] = ["Excavation"]
-    q["autres"] = ["P-77"]
-    q["heures"] = {"Mathis": {"Excavation": 4.0, "P-77": 2.0},
-                   "Camion v1892": {"Excavation": 8.0}}
+    q["heures"] = {"Mathis": {"Excavation": {"TR": 4.0, "TS": 0.0},
+                              "P-77": {"TR": 2.0, "TS": 1.0}},
+                   "Camion v1892": {"Excavation": {"TR": 8.0, "TS": 0.0}}}
     q["prime"] = {"Mathis": 2.0}
     q["commentaire_ligne"] = {"Mathis": "test"}
+    q["equip_codes"] = {"Mathis": ["C", "N"]}
+    q["equip_hours"] = {"Mathis": 10.0}
     return q
+
+
+def test_equip_codes_constant():
+    assert app.EQUIP_CODE_VALUES == ["C", "N", "É", "D", "G", "BT"]
+    assert app._equip_code_label("C") == "C — Camion"
+
+
+def test_pair_total():
+    assert app._pair_total({"TR": 4.0, "TS": 1.0}) == 5.0
+    assert app._pair_total({}) == 0.0
+
+
+def test_resource_total():
+    q = _sample_quart()
+    assert app._resource_total(q, "Mathis") == 7.0      # (4+0) + (2+1)
+    assert app._resource_total(q, "Camion v1892") == 8.0
+    assert app._resource_total(q, "Inconnu") == 0.0
+
+
+def test_quart_total():
+    assert app._quart_total(_sample_quart()) == 15.0    # 7 + 8
+
+
+def test_quart_activities_union_sorted():
+    assert app._quart_activities(_sample_quart()) == ["Excavation", "P-77"]
+    assert app._quart_activities(app._empty_quart()) == []
 
 
 def _sample_day():
@@ -39,16 +66,11 @@ def test_roster_order_and_types():
     assert app._roster(_sample_quart()) == [("Mathis", "P"), ("Roy", "P"), ("Camion v1892", "E")]
 
 
-def test_quart_total():
-    assert app._quart_total(_sample_quart()) == 14.0  # (4+2) + 8
-
-
 def test_day_total_sums_quarts():
     d = _sample_day()
     d["quarts"]["Soir"] = app._empty_quart()
-    d["quarts"]["Soir"]["activites"] = ["Excavation"]
-    d["quarts"]["Soir"]["heures"] = {"Roy": {"Excavation": 3.0}}
-    assert app._day_total(d) == 17.0  # 14 (Jour) + 3 (Soir)
+    d["quarts"]["Soir"]["heures"] = {"Roy": {"Excavation": {"TR": 3.0, "TS": 0.0}}}
+    assert app._day_total(d) == 18.0   # 15 (Jour) + 3 (Soir)
 
 
 def test_day_quart_names_ordered():
@@ -57,16 +79,6 @@ def test_day_quart_names_ordered():
     d["quarts"]["Soir"] = app._empty_quart()
     assert app._day_quart_names(d) == ["Jour", "Soir", "Nuit"]
 
-
-def test_quart_columns():
-    assert app._quart_columns(_sample_quart()) == ["Excavation", "P-77"]
-
-
-def test_resource_total():
-    q = _sample_quart()
-    assert app._resource_total(q, "Mathis") == 6.0
-    assert app._resource_total(q, "Camion v1892") == 8.0
-    assert app._resource_total(q, "Inconnu") == 0.0
 
 
 def test_legacy_day_maps_labels_to_keys():

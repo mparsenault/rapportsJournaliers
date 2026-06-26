@@ -55,6 +55,18 @@ ACT_KEYS = [f"h{i}" for i in range(8)]
 AUTRE_KEYS = [f"a{i}" for i in range(4)]
 HOUR_KEYS = ACT_KEYS + AUTRE_KEYS
 
+EQUIP_CODES = [
+    ("C", "Camion"), ("N", "Nacelle"), ("É", "Éch. Hyd."),
+    ("D", "Détecteur"), ("G", "Grue"), ("BT", "Chariot élév."),
+]
+EQUIP_CODE_VALUES = [c for c, _ in EQUIP_CODES]
+_EQUIP_CODE_LABELS = dict(EQUIP_CODES)
+
+
+def _equip_code_label(code):
+    return f"{code} — {_EQUIP_CODE_LABELS.get(code, code)}"
+
+
 # Couleurs Ondel
 ONDEL_GREEN = "#0999AA"
 ONDEL_GREEN_DARK = "#077A88"
@@ -191,6 +203,7 @@ def _empty_quart():
         "personnel": [], "equipements": [],
         "temp_am": None, "temp_pm": None, "conditions": [],
         "heures": {}, "prime": {}, "commentaire_ligne": {},
+        "equip_codes": {}, "equip_hours": {},
         "description": "",
     }
 
@@ -301,18 +314,32 @@ def _roster(quart):
     return ([(n, "P") for n in quart.get("personnel", [])]
             + [(e, "E") for e in quart.get("equipements", [])])
 
-def _resource_total(quart, name):
-    return float(sum(float(v or 0) for v in quart["heures"].get(name, {}).values()))
-
-def _quart_columns(quart):
-    return list(quart["activites"]) + list(quart["autres"])
-
 def _to_hours(v):
     """Convertit une valeur de cellule (str/float/None) en float heures (0 si invalide)."""
     try:
         return float(v or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+def _pair_total(pair):
+    """Total d'un couple {'TR','TS'} -> float (0 si vide/invalide)."""
+    pair = pair or {}
+    return _to_hours(pair.get("TR")) + _to_hours(pair.get("TS"))
+
+def _resource_total(quart, name):
+    return float(sum(_pair_total(p) for p in quart["heures"].get(name, {}).values()))
+
+def _quart_activities(quart):
+    """Union triée des activités présentes (clés de heures, tous employés)."""
+    acts = {a for acts in (quart.get("heures") or {}).values() for a in acts}
+    return sorted(acts)
+
+def _quart_columns(quart):
+    """Colonnes activité pour la grille (config du quart). Alias de compatibilité UI."""
+    return list(quart["activites"]) + list(quart["autres"])
+
+def _quart_total(quart):
+    return float(sum(_resource_total(quart, r) for r in quart["heures"]))
 
 def _build_hours_df(roster, cols_labels, quart):
     """DataFrame pour la grille AgGrid : 1 ligne/ressource, 1 colonne/activité,
@@ -359,10 +386,6 @@ def _apply_hours_grid(quart, df, cols_labels):
         elif name in quart["commentaire_ligne"]:
             quart["commentaire_ligne"].pop(name); changed = True
     return changed
-
-def _quart_total(quart):
-    cols = _quart_columns(quart)
-    return float(sum(sum(float(h.get(c) or 0) for c in cols) for h in quart["heures"].values()))
 
 def _day_total(day):
     return float(sum(_quart_total(q) for q in day["quarts"].values()))
