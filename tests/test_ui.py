@@ -650,7 +650,6 @@ def test_plage_duration_feeds_tr_total(monkeypatch):
     [r for r in at.radio if r.key == f"mode_{base}"][0].set_value("⏱ Plage").run()
     [b for b in at.button if b.key == f"rg_add_{base}"][0].click().run()
     # Régler la plage sur 10:00 -> 12:00
-    tis = sorted(at.time_input, key=lambda t: t.key)
     [t for t in at.time_input if t.key.startswith(f"rg_deb_{base}")][0].set_value(datetime.time(10, 0)).run()
     [t for t in at.time_input if t.key.startswith(f"rg_fin_{base}")][0].set_value(datetime.time(12, 0)).run()
     q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
@@ -658,5 +657,16 @@ def test_plage_duration_feeds_tr_total(monkeypatch):
     assert entry["mode"] == "plage"
     assert entry["TR"] == 2.0 and entry["TS"] == 0.0
     assert not at.exception
+
+
+def test_clear_quart_widget_state_clears_plage_keys():
+    """_clear_quart_widget_state purge aussi les clés de l'éditeur de plages."""
+    import app
+    import inspect
+    # Vérifier que les préfixes plage sont dans la liste des préfixes de _clear_quart_widget_state
+    source = inspect.getsource(app._clear_quart_widget_state)
+    plage_prefixes = ["ranges_", "rangeseq_", "mode_", "rg_deb_", "rg_fin_", "rg_knd_"]
+    for prefix in plage_prefixes:
+        assert prefix in source, f"Le préfixe '{prefix}' manque dans _clear_quart_widget_state"
 
 

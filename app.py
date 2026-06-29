@@ -8,6 +8,7 @@ import os
 import urllib.parse
 import urllib.request
 import base64
+import datetime
 from datetime import date, timedelta
 from io import BytesIO
 
@@ -134,7 +135,10 @@ def _clear_quart_widget_state(jour, quart_name):
                 f"{jour}_{quart_name}_temp_am", f"{jour}_{quart_name}_temp_pm",
                 f"{jour}_{quart_name}_cond", f"resource_sel_{jour}_{quart_name}",
                 f"personnel_pills_{jour}_{quart_name}", f"note_{jour}_{quart_name}",
-                f"show_geoloc_{jour}_{quart_name}", f"geoloc_{jour}_{quart_name}")
+                f"show_geoloc_{jour}_{quart_name}", f"geoloc_{jour}_{quart_name}",
+                f"ranges_{jour}_{quart_name}_", f"rangeseq_{jour}_{quart_name}_",
+                f"mode_{jour}_{quart_name}_", f"rg_deb_{jour}_{quart_name}_",
+                f"rg_fin_{jour}_{quart_name}_", f"rg_knd_{jour}_{quart_name}_")
     for k in list(st.session_state.keys()):
         if any(k.startswith(p) for p in prefixes):
             del st.session_state[k]
@@ -1084,7 +1088,6 @@ def _render_ranges_editor(base, initial):
     Garde une liste à ids stables dans session_state pour que l'ajout/retrait
     ne décale pas les clés de widgets. Renvoie la liste courante des plages.
     """
-    import datetime as _dt
     lst_key = f"ranges_{base}"
     seq_key = f"rangeseq_{base}"
     if lst_key not in st.session_state:
@@ -1100,16 +1103,16 @@ def _render_ranges_editor(base, initial):
         dk, fk, kk = f"rg_deb_{base}_{rid}", f"rg_fin_{base}_{rid}", f"rg_knd_{base}_{rid}"
         if dk not in st.session_state:
             _h, _m = (int(x) for x in row["debut"].split(":"))
-            st.session_state[dk] = _dt.time(_h, _m)
+            st.session_state[dk] = datetime.time(_h, _m)
         if fk not in st.session_state:
             _h, _m = (int(x) for x in row["fin"].split(":"))
-            st.session_state[fk] = _dt.time(_h, _m)
+            st.session_state[fk] = datetime.time(_h, _m)
         if kk not in st.session_state:
             st.session_state[kk] = row["type"]
         c1, c2, c3, c4, c5 = st.columns([3, 3, 2, 2, 1], vertical_alignment="center")
-        deb = c1.time_input("Début", key=dk, step=_dt.timedelta(minutes=15),
+        deb = c1.time_input("Début", key=dk, step=datetime.timedelta(minutes=15),
                             label_visibility="collapsed", on_change=_mark_dirty)
-        fin = c2.time_input("Fin", key=fk, step=_dt.timedelta(minutes=15),
+        fin = c2.time_input("Fin", key=fk, step=datetime.timedelta(minutes=15),
                             label_visibility="collapsed", on_change=_mark_dirty)
         knd = c3.radio("Type", ["TR", "TS"], key=kk, horizontal=True,
                        label_visibility="collapsed", on_change=_mark_dirty)
