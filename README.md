@@ -59,3 +59,26 @@ sont conservées et recalculées par Excel à l'ouverture.
 3. Planifier `sync_projects.py` (cron / Azure Function / Tâche planifiée) avec
    les variables d'env `SQLSERVER_*` et `POSTGRES_URL` ; dépendances dans
    `requirements-sync.txt`.
+
+## Authentification Microsoft
+
+L'accès est réservé aux comptes du tenant Microsoft ELEM via l'authentification
+OIDC native de Streamlit branchée sur Microsoft Entra ID (mono-tenant).
+
+### Enregistrer l'application dans Entra ID (admin)
+
+1. Portail Azure → **Microsoft Entra ID → App registrations → New registration**.
+2. **Redirect URI** (plateforme *Web*) :
+   - `http://localhost:8501/oauth2callback` (développement)
+   - `https://<ton-app>.streamlit.app/oauth2callback` (production)
+3. Noter le **Application (client) ID** et le **Directory (tenant) ID**.
+4. **Certificates & secrets → New client secret** : créer un secret, copier sa
+   valeur (noter la date d'expiration pour la rotation).
+
+### Configurer les secrets
+
+- En local : copier les valeurs dans la section `[auth]` de
+  `.streamlit/secrets.toml` (voir `secrets.toml.example`). Générer le
+  `cookie_secret` avec `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+- En production (Streamlit Community Cloud) : saisir les mêmes clés dans
+  **Settings → Secrets**, avec `redirect_uri` pointant sur l'URL `.streamlit.app`.
