@@ -493,6 +493,7 @@ def _build_synthese(ws, proj, legacy_jours, exported_by=""):
     ws.merge_cells("B1:F1")
     t = ws["B1"]; t.value = "RAPPORT JOURNALIER — ONDEL"; t.font = _F_TITLE; t.fill = _FILL_TITLE
     ws.column_dimensions["A"].width = 20
+    # Estampille de l'exportateur — DOIT rester la dernière écriture de la fonction (ws.max_row est évalué ici).
     last = ws.max_row + 2
     cell = ws.cell(row=last, column=1, value=f"Exporté par {exported_by or '—'}")
     cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
