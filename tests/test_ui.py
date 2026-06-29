@@ -670,3 +670,62 @@ def test_clear_quart_widget_state_clears_plage_keys():
         assert prefix in source, f"Le préfixe '{prefix}' manque dans _clear_quart_widget_state"
 
 
+def test_appliquer_heures_a_autre_travailleur(monkeypatch):
+    at = _run_with_project(monkeypatch)
+    # Naviguer vers la saisie du lundi
+    [b for b in at.button if "Lundi" in (b.label or "")][0].click().run()
+    jour = at.session_state["active_day"]
+    _aq_key = f"active_quart_{jour}"
+    quart_name = (at.session_state[_aq_key]
+                  if _aq_key in at.session_state
+                  else list(at.session_state["jours"][jour]["quarts"].keys())[0])
+    quart = at.session_state["jours"][jour]["quarts"][quart_name]
+    quart["personnel"] = ["Alice", "Bob"]
+    quart["heures"] = {"Alice": {"Excavation": {"mode": "direct", "ranges": [],
+                                               "TR": 4.0, "TS": 0.0}}}
+    at.session_state[f"resource_sel_{jour}_{quart_name}"] = "Alice"
+    at.run()
+    # cocher Bob comme destinataire
+    ms = [m for m in at.multiselect if m.label == "Appliquer aussi à…"][0]
+    ms.set_value(["Bob"]).run()
+    # cliquer le bouton d'application
+    btn = [b for b in at.button if "Appliquer à" in b.label][0]
+    btn.click().run()
+    quart = at.session_state["jours"][jour]["quarts"][quart_name]
+    assert quart["heures"]["Bob"]["Excavation"]["TR"] == 4.0
+
+
+def test_purge_resource_hour_keys_anchored_no_prefix_collision(monkeypatch):
+    """Régression : purger 'Dan' ne doit pas supprimer les clés de 'Daniel'.
+
+    Note: app._purge_resource_hour_keys opère sur st.session_state interne à app.
+    On remplace app.st.session_state par un dict ordinaire pour tester la logique
+    d'effacement sans dépendre du contexte AppTest.
+    """
+    import app
+
+    jour = "Lundi"
+    quart_name = "Jour"
+    fake_state = {
+        f"acts_{jour}_{quart_name}_Dan": ["Excavation"],
+        f"mode_{jour}_{quart_name}_Dan_Excavation": "TR/TS direct",
+        f"acts_{jour}_{quart_name}_Daniel": ["Coffrage"],
+        f"mode_{jour}_{quart_name}_Daniel_Coffrage": "TR/TS direct",
+        # clé supplémentaire avec suffixe _rid pour couvrir rg_* multi-niveaux
+        f"rg_deb_{jour}_{quart_name}_Dan_Excavation_0": 7.0,
+        f"rg_deb_{jour}_{quart_name}_Daniel_Coffrage_0": 8.0,
+    }
+    monkeypatch.setattr(app.st, "session_state", fake_state)
+
+    app._purge_resource_hour_keys(jour, quart_name, ["Dan"])
+
+    # Les clés de Dan sont supprimées
+    assert f"acts_{jour}_{quart_name}_Dan" not in fake_state
+    assert f"mode_{jour}_{quart_name}_Dan_Excavation" not in fake_state
+    assert f"rg_deb_{jour}_{quart_name}_Dan_Excavation_0" not in fake_state
+    # Les clés de Daniel sont préservées
+    assert f"acts_{jour}_{quart_name}_Daniel" in fake_state
+    assert f"mode_{jour}_{quart_name}_Daniel_Coffrage" in fake_state
+    assert f"rg_deb_{jour}_{quart_name}_Daniel_Coffrage_0" in fake_state
+
+
