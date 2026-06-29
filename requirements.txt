@@ -7,4 +7,7 @@ psycopg2-binary>=2.9
 streamlit-js-eval>=1.0.0
 streamlit-aggrid>=1.0.5
 pytest>=7.0
-Authlib>=1.3.2
+# <1.6 : Authlib 1.6 écrit dans session[...] même avec cache, ce qui casse
+# l'auth OIDC native de Streamlit 1.50 (session=None) → "'NoneType' object
+# does not support item assignment" sur /auth/login. Voir débogage 2026-06-29.
+Authlib>=1.3.2,<1.6
