@@ -197,14 +197,20 @@ def save_report_from_state():
         return False, f"Échec de l'enregistrement : {exc}"
 
 
-def envoyer_journee_par_courriel(projet, jour_name, day, destinataires, exported_by):
-    """Construit le .xlsx de la journée et l'envoie. Renvoie (ok, message)."""
+def envoyer_journee_par_courriel(projet, jour_name, day, destinataires, exported_by,
+                                 sender=None):
+    """Construit le .xlsx de la journée et l'envoie. Renvoie (ok, message).
+
+    `sender` : boîte d'envoi (courriel de la personne connectée) ; à défaut, on
+    retombe sur `[graph].sender`.
+    """
     if _day_total(day) <= 0:
         return False, "Journée vide, rien à envoyer."
     import excel_report
     subject, html_body, filename, data = excel_report.build_day_email(
         projet, jour_name, day, exported_by)
-    return mailer.send_mail(destinataires, subject, html_body, filename, data)
+    return mailer.send_mail(destinataires, subject, html_body, filename, data,
+                            sender=sender)
 
 
 def _empty_quart():
@@ -1460,8 +1466,10 @@ def view_day_entry():
             to = st.text_input("Destinataire(s) (séparés par ;)", value=default_to,
                                key=f"mail_to_{jour}")
             if st.button("Envoyer le courriel", key=f"send_{jour}", type="primary"):
+                user = current_user()
                 ok, msg = envoyer_journee_par_courriel(
-                    st.session_state.projet, jour, day, to, current_user()["name"])
+                    st.session_state.projet, jour, day, to, user["name"],
+                    sender=user["email"] or None)
                 (st.success if ok else st.error)(msg)
 
 

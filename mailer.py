@@ -53,8 +53,12 @@ def _get_token(cfg):
     return _token_cache["value"]
 
 
-def send_mail(to, subject, html_body, attachment_name, attachment_bytes):
-    """Envoie un courriel avec une pièce jointe. Renvoie (ok, message)."""
+def send_mail(to, subject, html_body, attachment_name, attachment_bytes, sender=None):
+    """Envoie un courriel avec une pièce jointe. Renvoie (ok, message).
+
+    `sender` : boîte d'envoi (UPN). Si fourni, le courriel part de cette boîte
+    (ex. la personne connectée) ; sinon, on retombe sur `[graph].sender`.
+    """
     recipients = _recipients(to)
     if not recipients:
         return False, "Aucun destinataire fourni."
@@ -62,6 +66,7 @@ def send_mail(to, subject, html_body, attachment_name, attachment_bytes):
         cfg = _graph_config()
     except Exception:
         return False, "Configuration [graph] manquante dans les secrets."
+    from_mailbox = sender or cfg["sender"]
     try:
         token = _get_token(cfg)
         message = {
@@ -75,7 +80,7 @@ def send_mail(to, subject, html_body, attachment_name, attachment_bytes):
                 "contentBytes": base64.b64encode(attachment_bytes).decode("ascii"),
             }],
         }
-        url = f"{_GRAPH}/users/{cfg['sender']}/sendMail"
+        url = f"{_GRAPH}/users/{from_mailbox}/sendMail"
         resp = httpx.post(url, headers={"Authorization": f"Bearer {token}"},
                           json={"message": message, "saveToSentItems": True}, timeout=30)
         if resp.status_code not in (200, 202):

@@ -57,6 +57,18 @@ def test_send_mail_succes_et_payload(fake):
     assert "spreadsheetml" in att["contentType"]
 
 
+def test_send_mail_sender_explicite(fake):
+    ok, _ = mailer.send_mail("dest@x.com", "S", "B", "f.xlsx", b"x",
+                             sender="moi@elem.global")
+    assert ok is True
+    assert fake.send_calls[0][0].endswith("/users/moi@elem.global/sendMail")
+
+
+def test_send_mail_sender_defaut_depuis_config(fake):
+    mailer.send_mail("dest@x.com", "S", "B", "f.xlsx", b"x")
+    assert fake.send_calls[0][0].endswith("/users/rapports@elem.global/sendMail")
+
+
 def test_send_mail_destinataires_multiples_str(fake):
     ok, _ = mailer.send_mail("a@x.com; b@y.com", "S", "B", "f.xlsx", b"x")
     addrs = [r["emailAddress"]["address"]

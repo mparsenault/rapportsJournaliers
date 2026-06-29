@@ -19,8 +19,8 @@ def _day_rempli():
 def test_envoyer_journee_appelle_send_mail(monkeypatch):
     captured = {}
 
-    def fake_send(to, subject, html, name, data):
-        captured.update(to=to, subject=subject, name=name, data=data)
+    def fake_send(to, subject, html, name, data, sender=None):
+        captured.update(to=to, subject=subject, name=name, data=data, sender=sender)
         return True, "Courriel envoyé ✓"
 
     monkeypatch.setattr(app.mailer, "send_mail", fake_send)
@@ -31,6 +31,20 @@ def test_envoyer_journee_appelle_send_mail(monkeypatch):
     assert "Lundi" in captured["subject"]
     assert captured["name"] == "Rapport_12345_2026-06-22.xlsx"
     assert captured["data"][:2] == b"PK"
+
+
+def test_envoyer_journee_passe_lexpediteur_connecte(monkeypatch):
+    captured = {}
+
+    def fake_send(to, subject, html, name, data, sender=None):
+        captured.update(sender=sender)
+        return True, "ok"
+
+    monkeypatch.setattr(app.mailer, "send_mail", fake_send)
+    app.envoyer_journee_par_courriel(
+        _projet(), "Lundi", _day_rempli(), "dest@x.com", "Test User",
+        sender="moi@elem.global")
+    assert captured["sender"] == "moi@elem.global"
 
 
 def test_envoyer_journee_vide_refuse(monkeypatch):
