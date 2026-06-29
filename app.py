@@ -1049,10 +1049,10 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
         ts_key = f"ts_{jour}_{quart_name}_{name}_{act}"
         st.session_state.setdefault(tr_key, pair["TR"])
         st.session_state.setdefault(ts_key, pair["TS"])
-        tr = cb.number_input("TR", key=tr_key, min_value=0.0, step=0.5,
-                             format="%.1f", label_visibility="collapsed", on_change=_mark_dirty)
-        ts = cc_.number_input("TS", key=ts_key, min_value=0.0, step=0.5,
-                              format="%.1f", label_visibility="collapsed", on_change=_mark_dirty)
+        tr = cb.number_input("TR", key=tr_key, min_value=0.0, step=0.25,
+                             format="%.2f", label_visibility="collapsed", on_change=_mark_dirty)
+        ts = cc_.number_input("TS", key=ts_key, min_value=0.0, step=0.25,
+                              format="%.2f", label_visibility="collapsed", on_change=_mark_dirty)
         if tr > 0 or ts > 0:
             new_heures[act] = {"TR": float(tr), "TS": float(ts)}
     if new_heures:
@@ -1074,8 +1074,8 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
             del quart["equip_codes"][name]
         eqh_key = f"eqh_{jour}_{quart_name}_{name}"
         st.session_state.setdefault(eqh_key, _to_hours(quart["equip_hours"].get(name)))
-        eqh = ce2.number_input("Hrs Éq.", key=eqh_key, min_value=0.0, step=0.5,
-                               format="%.1f", on_change=_mark_dirty)
+        eqh = ce2.number_input("Hrs Éq.", key=eqh_key, min_value=0.0, step=0.25,
+                               format="%.2f", on_change=_mark_dirty)
         if eqh > 0:
             quart["equip_hours"][name] = float(eqh)
         elif name in quart["equip_hours"]:
