@@ -1,0 +1,77 @@
+"""Tests de excel_report.py : on recharge le .xlsx produit et on vérifie le contenu."""
+from datetime import date
+from io import BytesIO
+
+import openpyxl
+
+import app
+import excel_report
+
+
+def _projet():
+    return {"no": "12345", "id_project": 7, "semaine": date(2026, 6, 21),
+            "adresse": "123 rue Principale", "lat": None, "lon": None}
+
+
+def _day_rempli():
+    q = app._empty_quart()
+    q["personnel"] = ["Mathis Lajeunesse"]
+    q["temp_am"] = 12.0
+    q["conditions"] = ["Ensoleillé"]
+    q["heures"] = {"Mathis Lajeunesse": {"Excavation": {"TR": 8.0, "TS": 1.0}}}
+    q["prime"] = {"Mathis Lajeunesse": 25.0}
+    return {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
+
+
+def _day_vide():
+    return {"date": date(2026, 6, 22), "quarts": {"Jour": app._empty_quart()}}
+
+
+def _all_text(ws):
+    return "\n".join(
+        str(c.value) for row in ws.iter_rows() for c in row if c.value not in (None, ""))
+
+
+def test_build_day_workbook_une_feuille_et_entete():
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "Test User")
+    wb = openpyxl.load_workbook(buf)
+    assert wb.sheetnames == ["Lundi"]
+    txt = _all_text(wb["Lundi"])
+    assert "RAPPORT JOURNALIER — ONDEL" in txt
+    assert "12345" in txt                      # No Projet
+    assert "Mathis Lajeunesse" in txt          # ligne de personnel
+    assert "Exporté par Test User" in txt      # estampille
+
+
+def test_build_day_workbook_heures_et_prime_presentes():
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
+    wb = openpyxl.load_workbook(buf)
+    vals = [c.value for row in wb["Lundi"].iter_rows() for c in row]
+    assert 8.0 in vals and 1.0 in vals     # TR et TS
+    assert 25.0 in vals                    # prime
+
+
+def test_build_day_workbook_jour_vide_sans_personnel():
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_vide(), "")
+    wb = openpyxl.load_workbook(buf)
+    txt = _all_text(wb["Lundi"])
+    assert "RAPPORT JOURNALIER — ONDEL" in txt
+    assert "Mathis" not in txt
+
+
+def test_build_week_workbook_une_feuille_par_jour_rempli():
+    jours = {j: _day_vide() for j in app.JOURS}
+    jours["Lundi"] = _day_rempli()
+    jours["Mercredi"] = _day_rempli()
+    buf = excel_report.build_week_workbook(_projet(), jours, app.JOURS, "")
+    wb = openpyxl.load_workbook(buf)
+    assert wb.sheetnames == ["Lundi", "Mercredi"]
+
+
+def test_build_day_email_renvoie_sujet_nom_et_bytes():
+    subject, html, filename, data = excel_report.build_day_email(
+        _projet(), "Lundi", _day_rempli(), "Test User")
+    assert "12345" in subject and "Lundi" in subject
+    assert filename == "Rapport_12345_2026-06-22.xlsx"
+    assert isinstance(data, bytes) and data[:2] == b"PK"   # signature zip/xlsx
+    assert "Test User" in html
