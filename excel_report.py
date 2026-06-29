@@ -5,7 +5,6 @@ construit les classeurs openpyxl. Il importe `app` ; app NE DOIT PAS importer
 excel_report au niveau module (import paresseux dans les vues) pour éviter un
 import circulaire.
 """
-import base64
 from io import BytesIO
 
 from openpyxl import Workbook
@@ -29,7 +28,6 @@ _FILL_HEAD = PatternFill("solid", fgColor=_TEAL_DK)
 _FILL_BAND = PatternFill("solid", fgColor=_BAND)
 _CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _LEFT = Alignment(horizontal="left", vertical="center")
-_RIGHT = Alignment(horizontal="right", vertical="center")
 _HOURS_FMT = "0.00"
 
 

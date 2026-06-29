@@ -1464,6 +1464,7 @@ def view_day_entry():
                     st.session_state.projet, jour, day, to, current_user()["name"])
                 (st.success if ok else st.error)(msg)
 
+
 def view_export():
     import excel_report
     st.subheader("📥 Export Excel")

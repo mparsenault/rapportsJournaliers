@@ -1,6 +1,4 @@
 """Tests de mailer.py — httpx mocké, AUCUN appel réseau."""
-import types
-
 import pytest
 
 import mailer
