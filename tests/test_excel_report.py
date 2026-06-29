@@ -43,6 +43,46 @@ def test_build_day_workbook_une_feuille_et_entete():
     assert "Exporté par Test User" in txt      # estampille
 
 
+def test_build_day_workbook_largeurs_colonnes_ajustees():
+    # Garde-fou : la colonne Nom/Activité et la colonne Commentaire sont larges,
+    # plusieurs colonnes ont une largeur (pas seulement A).
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
+    ws = openpyxl.load_workbook(buf)["Lundi"]
+    larges = {k: d.width for k, d in ws.column_dimensions.items() if d.width}
+    assert "A" in larges and larges["A"] >= 30          # colonne Nom / Activité
+    assert max(larges.values()) >= 30                    # colonne Commentaire
+    assert len(larges) >= 5                              # plusieurs colonnes réglées
+
+
+def test_build_day_workbook_groupe_par_employe():
+    # Option B : ligne du nom, sous-ligne d'activité, ligne Total.
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
+    ws = openpyxl.load_workbook(buf)["Lundi"]
+    col_a = [str(c.value) for c in ws["A"] if c.value not in (None, "")]
+    assert any("Mathis Lajeunesse" in v for v in col_a)        # ligne nom
+    assert any("Excavation" in v for v in col_a)               # sous-ligne activité
+    assert any(v.strip() == "Total" for v in col_a)            # ligne Total
+
+
+def test_build_day_workbook_plages_horaires_par_activite():
+    # Une activité en mode « plage » affiche ses créneaux début–fin et leur type.
+    q = app._empty_quart()
+    q["personnel"] = ["Bob"]
+    q["heures"] = {"Bob": {"Excavation": {
+        "mode": "plage",
+        "ranges": [{"debut": "07:00", "fin": "12:00", "type": "TR"},
+                   {"debut": "13:00", "fin": "14:00", "type": "TS"}],
+        "TR": 5.0, "TS": 1.0}}}
+    day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", day, "")
+    ws = openpyxl.load_workbook(buf)["Lundi"]
+    col_a = [str(c.value) for c in ws["A"] if c.value not in (None, "")]
+    assert any("07:00 – 12:00" in v for v in col_a)         # plage 1
+    assert any("13:00 – 14:00" in v for v in col_a)         # plage 2
+    vals = [c.value for row in ws.iter_rows() for c in row]
+    assert 5.0 in vals and 1.0 in vals                       # heures TR / TS dérivées
+
+
 def test_build_day_workbook_heures_et_prime_presentes():
     buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
     wb = openpyxl.load_workbook(buf)

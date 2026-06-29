@@ -9,6 +9,7 @@ from io import BytesIO
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 import app
 
@@ -66,17 +67,61 @@ def _write_row(ws, row, values, *, bold=False, fill=None, fmt=None):
             cell.number_format = fmt
 
 
+# Colonnes fixes (regroupement par ressource : activités + plages en sous-lignes).
+_PERS_COLS = ["Nom / Activité", "Plage", "TR", "TS", "Hrs Éq.", "Code Éq.", "Prime", "Commentaire"]
+_EQUIP_COLS = ["Véhicule / Activité", "Plage", "TR", "TS", "Prime", "Commentaire"]
+_NCOL = len(_PERS_COLS)  # largeur de la feuille (le tableau personnel est le plus large)
+
+
+def _col_width(name):
+    """Largeur selon le rôle de la colonne."""
+    return {
+        "Nom / Activité": 40, "Véhicule / Activité": 40, "Plage": 14,
+        "TR": 6.5, "TS": 6.5, "Hrs Éq.": 9, "Code Éq.": 13, "Prime": 9,
+        "Commentaire": 30,
+    }.get(name, 12)
+
+
+def _apply_widths(ws, cols):
+    for i, name in enumerate(cols, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = _col_width(name)
+
+
+def _banner(ws, row, text):
+    """Bande d'info (fusionnée A:dernière colonne), fond teal, texte blanc."""
+    ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
+    cell = ws.cell(row=row, column=1, value=text)
+    cell.font = _F_HEAD
+    cell.fill = _FILL_HEAD
+    cell.alignment = _LEFT
+    ws.row_dimensions[row].height = 20
+
+
+def _quart_info(qname, quart):
+    parts = [f"Quart {qname}"]
+    if quart.get("responsable"):
+        parts.append(f"Resp. : {quart['responsable']}")
+    tam, tpm = quart.get("temp_am"), quart.get("temp_pm")
+    if tam is not None or tpm is not None:
+        a = tam if tam is not None else "—"
+        p = tpm if tpm is not None else "—"
+        parts.append(f"Temp. AM {a} / PM {p}")
+    if quart.get("conditions"):
+        parts.append(", ".join(quart["conditions"]))
+    return "    ·    ".join(parts)
+
+
 def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     """Écrit le rapport d'une journée dans la feuille `ws`."""
     ws.title = _safe_title(jour_name)
     _add_logo(ws)
-    ws.column_dimensions["A"].width = 28
+    _apply_widths(ws, _PERS_COLS)
 
-    ws.merge_cells("B1:H1")
-    t = ws["B1"]
-    t.value = "RAPPORT JOURNALIER — ONDEL"
+    ws.merge_cells(start_row=1, end_row=1, start_column=2, end_column=_NCOL)
+    t = ws.cell(row=1, column=2, value="RAPPORT JOURNALIER — ONDEL")
     t.font = _F_TITLE
     t.fill = _FILL_TITLE
+    ws.row_dimensions[1].height = 38
 
     d = day.get("date")
     date_txt = app.fr_date_long(d) if d else ""
@@ -92,24 +137,23 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
         quart = day["quarts"][qname]
         if app._quart_total(quart) <= 0:
             continue
-        leg = app._legacy_day(quart)
-
-        ws.cell(row=row, column=1, value=f"Quart : {qname}").font = _F_LABEL
-        ws.cell(row=row, column=3,
-                value=f"Resp. : {leg.get('responsable', '')}").font = _F_LABEL
-        ws.cell(row=row, column=5,
-                value=f"Temp. AM : {leg.get('temp_am')}  PM : {leg.get('temp_pm')}")
-        ws.cell(row=row, column=7,
-                value="Conditions : " + ", ".join(leg.get("conditions", [])))
+        _banner(ws, row, _quart_info(qname, quart))
         row += 1
-        if leg.get("description"):
-            ws.cell(row=row, column=1, value=f"Note : {leg['description']}")
+        if quart.get("description"):
+            ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
+            ws.cell(row=row, column=1,
+                    value=f"Note : {quart['description']}").alignment = _LEFT
             row += 1
 
-        row = _write_table(ws, row, leg["headers"], leg["pers"], with_equip=True)
+        if quart.get("personnel"):
+            row = _write_resource_table(ws, row, quart, quart["personnel"],
+                                        _PERS_COLS, with_equip=True)
+            row += 1
+        if quart.get("equipements"):
+            row = _write_resource_table(ws, row, quart, quart["equipements"],
+                                        _EQUIP_COLS, with_equip=False)
+            row += 1
         row += 1
-        row = _write_table(ws, row, leg["headers"], leg["equip"], with_equip=False)
-        row += 2
 
     # Estampille (dernière écriture)
     last = ws.max_row + 2
@@ -117,24 +161,70 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
 
 
-def _write_table(ws, row, headers, df, *, with_equip):
-    """Écrit un tableau (personnel ou équipement) ; renvoie la prochaine ligne libre.
+def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
+    """Tableau groupé par ressource : ligne nom, puis par activité ses plages
+    horaires (début–fin, type TR/TS) — ou une ligne unique en mode direct —, et
+    une ligne Total (totaux + champs par ressource). Renvoie la prochaine ligne libre.
 
-    `headers` mappe les clés hX/aX -> libellés d'activité (vides à ignorer).
-    `df` est le DataFrame produit par app._legacy_day (build_df)."""
-    label_col = df.columns[0]                      # "Nom" ou "Véhicule"
-    act_cols = [k for k in app.HOUR_KEYS if headers.get(k)]
-    cols = [label_col] + act_cols + ["TR", "TS"]
-    if with_equip:
-        cols += ["Hrs Éq.", "Code Éq."]
-    cols += ["Prime", "Commentaire"]
-
-    titles = [label_col] + [headers[k] for k in act_cols] + cols[1 + len(act_cols):]
-    _write_row(ws, row, titles, bold=True, fill=_FILL_HEAD)
+    Colonnes : [label, Plage, TR, TS, (Hrs Éq., Code Éq.,) Prime, Commentaire]."""
+    ncol = len(cols)
+    extra = ncol - 4  # colonnes après [label, Plage, TR, TS]
+    _write_row(ws, row, cols, bold=True, fill=_FILL_HEAD)
     row += 1
-    for _, rec in df.iterrows():
-        values = [rec.get(c) for c in cols]
-        _write_row(ws, row, values, fmt=_HOURS_FMT, fill=_FILL_BAND)
+
+    heures = quart.get("heures") or {}
+    prime = quart.get("prime") or {}
+    comm = quart.get("commentaire_ligne") or {}
+    eqh = quart.get("equip_hours") or {}
+    eqc = quart.get("equip_codes") or {}
+
+    for name in names:
+        acts = heures.get(name) or {}
+        # Ligne du nom (fusionnée sur toute la largeur).
+        ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=ncol)
+        nc = ws.cell(row=row, column=1, value=name)
+        nc.font = _F_LABEL
+        nc.fill = _FILL_BAND
+        nc.alignment = _LEFT
+        row += 1
+
+        tr_tot = ts_tot = 0.0
+        for label in sorted(acts):
+            norm = app._norm_entry(acts[label])
+            ranges = norm.get("ranges") or []
+            if ranges:
+                # Activité (sous-ligne) puis une ligne par plage.
+                _write_row(ws, row, ["  " + label] + [None] * (ncol - 1))
+                row += 1
+                for r in ranges:
+                    deb = (r or {}).get("debut")
+                    fin = (r or {}).get("fin")
+                    typ = "TS" if (r or {}).get("type") == "TS" else "TR"
+                    dur = app._range_hours(deb, fin)
+                    tr = dur if typ == "TR" else 0.0
+                    ts = dur if typ == "TS" else 0.0
+                    tr_tot += tr
+                    ts_tot += ts
+                    _write_row(ws, row, [f"      {deb} – {fin}", typ, tr, ts]
+                               + [None] * extra, fmt=_HOURS_FMT)
+                    row += 1
+            else:
+                # Mode direct : une seule ligne avec les heures.
+                tr = float(norm.get("TR") or 0)
+                ts = float(norm.get("TS") or 0)
+                tr_tot += tr
+                ts_tot += ts
+                _write_row(ws, row, ["  " + label, "directe", tr, ts]
+                           + [None] * extra, fmt=_HOURS_FMT)
+                row += 1
+
+        if with_equip:
+            codes = ", ".join(eqc.get(name) or []) or None
+            total = ["Total", None, tr_tot, ts_tot, eqh.get(name), codes,
+                     prime.get(name), comm.get(name)]
+        else:
+            total = ["Total", None, tr_tot, ts_tot, prime.get(name), comm.get(name)]
+        _write_row(ws, row, total, bold=True, fmt=_HOURS_FMT, fill=_FILL_BAND)
         row += 1
     return row
 
