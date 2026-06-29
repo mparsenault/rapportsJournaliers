@@ -1457,6 +1457,23 @@ def view_export():
 
 def main():
     st.set_page_config(page_title="Ondel Rapport journalier", layout="wide", initial_sidebar_state="collapsed")
+    if not st.user.is_logged_in:
+        st.markdown(get_css(), unsafe_allow_html=True)
+        uri = _logo_data_uri()
+        with st.container(key="ondel_header"):
+            _, c, _ = st.columns([1, 4, 1], vertical_alignment="center")
+            c.markdown('<div class="ondel-title">RAPPORTS JOURNALIERS</div>',
+                       unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="text-align:center;margin:2rem 0;">'
+            f'<img src="{uri}" style="height:64px;"></div>',
+            unsafe_allow_html=True)
+        st.info("Accès réservé aux employés ELEM. Connectez-vous avec votre compte Microsoft.")
+        _, c, _ = st.columns([1, 2, 1])
+        if c.button("🔑 Se connecter avec Microsoft", use_container_width=True,
+                    type="primary"):
+            st.login()
+        st.stop()
     init_state()
     # Crée les tables de rapports au premier rendu (idempotent, une fois par session)
     if not st.session_state.schema_ready:
@@ -1474,8 +1491,14 @@ def main():
             if st.session_state.view != "dashboard" and st.button("⬅️ Retour", key="hdr_retour"):
                 st.session_state.view = "dashboard"; st.rerun()
         b_c.markdown('<div class="ondel-title">RAPPORTS JOURNALIERS</div>', unsafe_allow_html=True)
-        b_r.markdown(f'<div class="logo-wrap"><span class="logo-chip"><img src="{uri}"></span></div>',
-                     unsafe_allow_html=True)
+        with b_r:
+            user = current_user()
+            st.markdown(
+                f'<div class="logo-wrap"><span class="logo-chip"><img src="{uri}"></span></div>',
+                unsafe_allow_html=True)
+            st.caption(f"👤 {user['name'] or user['email']}")
+            if st.button("Se déconnecter", key="hdr_logout", use_container_width=True):
+                st.logout()
     
     if st.session_state.view == "dashboard": view_dashboard()
     elif st.session_state.view == "day_entry": view_day_entry()
