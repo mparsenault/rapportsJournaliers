@@ -691,8 +691,14 @@ def test_appliquer_heures_a_autre_travailleur(monkeypatch):
     # cliquer le bouton d'application
     btn = [b for b in at.button if "Appliquer à" in b.label][0]
     btn.click().run()
+    # Le clic ne doit lever aucune exception Streamlit (on ne peut pas modifier
+    # la clé d'un widget après son instanciation dans le run).
+    assert not at.exception
     quart = at.session_state["jours"][jour]["quarts"][quart_name]
     assert quart["heures"]["Bob"]["Excavation"]["TR"] == 4.0
+    # Le multiselect des destinataires est vidé après l'application.
+    ms_after = [m for m in at.multiselect if m.label == "Appliquer aussi à…"]
+    assert ms_after and ms_after[0].value == []
 
 
 def test_purge_resource_hour_keys_anchored_no_prefix_collision(monkeypatch):

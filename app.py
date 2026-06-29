@@ -1488,6 +1488,10 @@ def view_day_entry():
                     with st.container(border=True):
                         st.caption("👥 Copier les activités et heures de cette fiche vers d'autres travailleurs")
                         bulk_key = f"bulk_apply_{jour}_{quart_name}_{name}"
+                        # Vidage après application : on réinitialise AVANT d'instancier
+                        # le widget (impossible de modifier sa clé une fois créé dans le run).
+                        if st.session_state.pop(f"clear_{bulk_key}", False):
+                            st.session_state[bulk_key] = []
                         dests = st.multiselect("Appliquer aussi à…", dest_options,
                                                key=bulk_key,
                                                placeholder="🔍 Travailleurs destinataires…")
@@ -1499,7 +1503,7 @@ def view_day_entry():
                                      disabled=disabled, use_container_width=True):
                             changed = _apply_hours_to_resources(quart, name, dests)
                             _purge_resource_hour_keys(jour, quart_name, changed)
-                            st.session_state[bulk_key] = []
+                            st.session_state[f"clear_{bulk_key}"] = True
                             _mark_dirty()
                             st.success("Copié vers : " + ", ".join(changed))
                             st.rerun()
