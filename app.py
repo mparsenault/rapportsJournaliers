@@ -414,29 +414,38 @@ def _copy_entry(raw):
     }
 
 
-def _apply_hours_to_resources(quart, source_name, dest_names):
-    """Copie (fusion) les heures de `source_name` vers chaque destinataire.
+def _apply_hours_dict_to_resources(quart, hours, dest_names):
+    """Fusionne le dict `hours` ({activité: entrée}) dans chaque destinataire.
 
-    Pour chaque activité de la source, écrit une copie indépendante dans
-    quart["heures"][dest][activité]. Les activités préexistantes du
-    destinataire absentes de la source sont conservées ; les activités
-    communes sont écrasées par la valeur source. Renvoie la liste des
-    destinataires effectivement modifiés.
+    Pour chaque activité de `hours`, écrit une copie indépendante dans
+    quart["heures"][dest][activité]. Les activités préexistantes du destinataire
+    absentes de `hours` sont conservées ; les communes sont écrasées. N'agit pas
+    si `hours` est vide. Renvoie la liste des destinataires effectivement
+    modifiés (sans doublon, dans l'ordre de `dest_names`).
     """
-    source = quart["heures"].get(source_name) or {}
-    if not source:
+    if not hours:
         return []
     changed = []
     seen = set()
     for dest in dest_names:
-        if dest == source_name or dest in seen:
+        if dest in seen:
             continue
         seen.add(dest)
         target = quart["heures"].setdefault(dest, {})
-        for act, raw in source.items():
+        for act, raw in hours.items():
             target[act] = _copy_entry(raw)
         changed.append(dest)
     return changed
+
+
+def _apply_hours_to_resources(quart, source_name, dest_names):
+    """Copie (fusion) les heures de `source_name` vers chaque destinataire.
+
+    (Conservée pour compatibilité ; délègue à _apply_hours_dict_to_resources.)
+    """
+    source = quart["heures"].get(source_name) or {}
+    dests = [d for d in dest_names if d != source_name]
+    return _apply_hours_dict_to_resources(quart, source, dests)
 
 
 def _pair_total(pair):

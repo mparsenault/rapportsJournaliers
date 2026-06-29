@@ -268,3 +268,53 @@ def test_apply_hours_ignores_source_in_dests():
     q["heures"] = {"Alice": {"Excavation": {"mode": "direct", "ranges": [], "TR": 4.0, "TS": 0.0}}}
     changed = app._apply_hours_to_resources(q, "Alice", ["Alice", "Bob"])
     assert changed == ["Bob"]
+
+
+def test_apply_dict_copies_to_empty_dest():
+    q = app._empty_quart()
+    q["personnel"] = ["Alice", "Bob"]
+    hours = {"Excavation": {"mode": "direct", "ranges": [], "TR": 4.0, "TS": 1.0}}
+    changed = app._apply_hours_dict_to_resources(q, hours, ["Bob"])
+    assert changed == ["Bob"]
+    assert q["heures"]["Bob"]["Excavation"]["TR"] == 4.0
+    assert q["heures"]["Bob"]["Excavation"]["TS"] == 1.0
+
+
+def test_apply_dict_ranges_are_independent():
+    q = app._empty_quart()
+    hours = {"Excavation": {"mode": "plage",
+                            "ranges": [{"debut": "08:00", "fin": "12:00", "type": "TR"}],
+                            "TR": 4.0, "TS": 0.0}}
+    app._apply_hours_dict_to_resources(q, hours, ["Alice", "Bob"])
+    # muter la source ne doit pas toucher les destinataires
+    hours["Excavation"]["ranges"][0]["fin"] = "16:00"
+    assert q["heures"]["Alice"]["Excavation"]["ranges"][0]["fin"] == "12:00"
+    assert q["heures"]["Bob"]["Excavation"]["ranges"][0]["fin"] == "12:00"
+    # les deux destinataires sont indépendants l'un de l'autre
+    q["heures"]["Alice"]["Excavation"]["ranges"][0]["fin"] = "10:00"
+    assert q["heures"]["Bob"]["Excavation"]["ranges"][0]["fin"] == "12:00"
+
+
+def test_apply_dict_merges_without_erasing():
+    q = app._empty_quart()
+    q["heures"] = {"Bob": {"Coffrage": {"mode": "direct", "ranges": [], "TR": 2.0, "TS": 0.0},
+                           "Excavation": {"mode": "direct", "ranges": [], "TR": 1.0, "TS": 0.0}}}
+    hours = {"Excavation": {"mode": "direct", "ranges": [], "TR": 4.0, "TS": 0.0}}
+    app._apply_hours_dict_to_resources(q, hours, ["Bob"])
+    assert q["heures"]["Bob"]["Coffrage"]["TR"] == 2.0   # propre à Bob conservée
+    assert q["heures"]["Bob"]["Excavation"]["TR"] == 4.0  # commune écrasée
+
+
+def test_apply_dict_empty_hours_noop():
+    q = app._empty_quart()
+    q["heures"] = {"Bob": {"Coffrage": {"mode": "direct", "ranges": [], "TR": 2.0, "TS": 0.0}}}
+    changed = app._apply_hours_dict_to_resources(q, {}, ["Bob"])
+    assert changed == []
+    assert q["heures"]["Bob"]["Coffrage"]["TR"] == 2.0
+
+
+def test_apply_dict_dedupes_dests():
+    q = app._empty_quart()
+    hours = {"Excavation": {"mode": "direct", "ranges": [], "TR": 4.0, "TS": 0.0}}
+    changed = app._apply_hours_dict_to_resources(q, hours, ["Bob", "Bob", "Alice"])
+    assert changed == ["Bob", "Alice"]
