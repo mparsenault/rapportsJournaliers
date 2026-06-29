@@ -494,8 +494,12 @@ def get_css():
     <style>
     /* Global Styles */
     .stApp {{ background-color: {ONDEL_LIGHT_BG}; }}
-    /* Réduit le padding par défaut (~6rem) en haut de l'app */
-    .stMainBlockContainer, .block-container {{ padding-top: 3rem !important; }}
+    /* Réduit le padding par défaut (~6rem haut, ~5rem latéral) de l'app */
+    .stMainBlockContainer, .block-container {{
+        padding-top: 3rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }}
 
     /* Header — bannière teal construite comme un conteneur Streamlit stylé,
        pour pouvoir y intégrer le bouton Retour (widget) à gauche. */
