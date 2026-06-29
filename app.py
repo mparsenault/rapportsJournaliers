@@ -573,17 +573,28 @@ def get_css():
     .st-key-ondel_header [data-testid="stColumn"]:last-child [data-testid="stElementContainer"] {{
         width: auto !important; flex: 0 0 auto !important;
     }}
-    .hdr-user {{ color: #fff; font-weight: 600; font-size: 0.9rem;
-        white-space: nowrap; line-height: 1.2; margin: 0 !important; }}
+    /* Identité connectée + déconnexion, alignées à droite sur la ligne du
+       titre « Tableau de bord hebdomadaire » (fond clair). */
+    .st-key-dash_user [data-testid="stVerticalBlock"] {{
+        flex-direction: row !important; flex-wrap: nowrap !important;
+        align-items: center !important; justify-content: flex-end !important;
+        gap: 0.6rem !important;
+    }}
+    .st-key-dash_user [data-testid="stElementContainer"] {{
+        width: auto !important; flex: 0 0 auto !important;
+    }}
+    .dash-user-name {{ color: {ONDEL_ACCENT}; font-weight: 600; font-size: 0.9rem;
+        white-space: nowrap; }}
     .st-key-hdr_logout button {{
-        background: rgba(255,255,255,0.15) !important; color: #fff !important;
-        border: 1px solid rgba(255,255,255,0.45) !important;
-        padding: 0.1rem 0.7rem !important; font-size: 0.78rem !important;
+        background: #fff !important; color: {ONDEL_GREEN_DARK} !important;
+        border: 1px solid {ONDEL_GREEN} !important;
+        padding: 0.12rem 0.75rem !important; font-size: 0.8rem !important;
         min-height: 0 !important; height: auto !important; border-radius: 6px !important;
-        line-height: 1.35 !important; white-space: nowrap;
+        line-height: 1.4 !important; white-space: nowrap;
     }}
     .st-key-hdr_logout button:hover {{
-        background: rgba(255,255,255,0.28) !important; border-color: #fff !important; color: #fff !important;
+        background: {ONDEL_LIGHT_BG} !important; border-color: {ONDEL_GREEN_DARK} !important;
+        color: {ONDEL_GREEN_DARK} !important;
     }}
 
     /* Buttons */
@@ -972,8 +983,17 @@ def _logo_data_uri():
 # Views
 # --------------------------------------------------------------------------
 def view_dashboard():
-    st.markdown("### 📋 Tableau de bord hebdomadaire")
-    
+    t_l, t_r = st.columns([3, 2], vertical_alignment="center")
+    t_l.markdown("### 📋 Tableau de bord hebdomadaire")
+    with t_r:
+        with st.container(key="dash_user"):
+            user = current_user()
+            st.markdown(
+                f'<span class="dash-user-name">👤 {user["name"] or user["email"] or "—"}</span>',
+                unsafe_allow_html=True)
+            if st.button("Se déconnecter", key="hdr_logout"):
+                st.logout()
+
     with st.container(border=True):
         c1, c2 = st.columns([2, 1])
         proj = st.session_state.projet
@@ -1515,18 +1535,12 @@ def main():
     
     uri = _logo_data_uri()
     with st.container(key="ondel_header"):
-        b_l, b_c, b_r = st.columns([1, 3, 2], vertical_alignment="center")
+        b_l, b_c, b_r = st.columns([1, 4, 1], vertical_alignment="center")
         with b_l:
             if st.session_state.view != "dashboard" and st.button("⬅️ Retour", key="hdr_retour"):
                 st.session_state.view = "dashboard"; st.rerun()
         b_c.markdown('<div class="ondel-title">RAPPORTS JOURNALIERS</div>', unsafe_allow_html=True)
         with b_r:
-            user = current_user()
-            st.markdown(
-                f'<div class="hdr-user">👤 {user["name"] or user["email"] or "—"}</div>',
-                unsafe_allow_html=True)
-            if st.button("Se déconnecter", key="hdr_logout"):
-                st.logout()
             st.markdown(
                 f'<div class="logo-wrap"><span class="logo-chip"><img src="{uri}"></span></div>',
                 unsafe_allow_html=True)
