@@ -278,7 +278,8 @@ def test_day_hours_entry_updates_model(monkeypatch):
     [n for n in at.number_input if n.key == "tr_Lundi_Jour_Alice_C01 - Test"][0].set_value(8.0).run()
     [n for n in at.number_input if n.key == "ts_Lundi_Jour_Alice_C01 - Test"][0].set_value(1.5).run()
     q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
-    assert q["heures"]["Alice"]["C01 - Test"] == {"TR": 8.0, "TS": 1.5}
+    entry = q["heures"]["Alice"]["C01 - Test"]
+    assert entry["TR"] == 8.0 and entry["TS"] == 1.5
     assert not at.exception
 
 
@@ -524,7 +525,8 @@ def test_hours_are_distinct_per_quart(monkeypatch):
     # Soir : pas d'heures, activités à choisir indépendamment
     qj = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
     qs = at.session_state["jours"]["Lundi"]["quarts"]["Soir"]
-    assert qj["heures"]["Alice"]["C01 - Test"] == {"TR": 8.0, "TS": 0.0}
+    entry_j = qj["heures"]["Alice"]["C01 - Test"]
+    assert entry_j["TR"] == 8.0 and entry_j["TS"] == 0.0
     assert qs["heures"] == {}
     assert not at.exception
 
@@ -566,21 +568,22 @@ def test_add_quart_can_copy_team_and_activities(monkeypatch):
 
 
 def test_saisie_card_table_header_and_no_repeated_labels(monkeypatch):
-    """Étape Saisie : une activité sélectionnée affiche l'en-tête de tableau
-    Activité/TR/TS, sans étiquette répétée « TR — … », et la saisie écrit
-    toujours dans la forme {"TR","TS"}."""
+    """Étape Saisie : une activité sélectionnée affiche les champs TR/TS en mode direct,
+    sans étiquette répétée « TR — … », et la saisie écrit toujours au moins TR/TS."""
     at = _open_day_for_entry(monkeypatch)   # personnel Alice, activité "C01 - Test"
     _goto_saisie(at)
     ms = [m for m in at.multiselect if m.key == "acts_Lundi_Jour_Alice"][0]
     ms.set_value(["C01 - Test"]).run()
-    md = " ".join((m.value or "") for m in at.markdown)
-    assert "Activité" in md and "TR" in md and "TS" in md   # ligne d'en-tête présente
+    # En mode direct (défaut) : champs TR et TS présents
+    assert any(n.key == "tr_Lundi_Jour_Alice_C01 - Test" for n in at.number_input)
+    assert any(n.key == "ts_Lundi_Jour_Alice_C01 - Test" for n in at.number_input)
     labels = [(n.label or "") for n in at.number_input]
     assert not any(l.startswith("TR —") or l.startswith("TS —") for l in labels)
     tr = [n for n in at.number_input if n.key == "tr_Lundi_Jour_Alice_C01 - Test"][0]
     tr.set_value(8.0).run()
     q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
-    assert q["heures"]["Alice"]["C01 - Test"] == {"TR": 8.0, "TS": 0.0}
+    entry = q["heures"]["Alice"]["C01 - Test"]
+    assert entry["TR"] == 8.0 and entry["TS"] == 0.0
     assert not at.exception
 
 
@@ -597,9 +600,63 @@ def test_copy_day_copies_hours_and_equipment(monkeypatch):
     at.run()
     [b for b in at.button if b.key == "copy_Mardi"][0].click().run()
     qm = at.session_state["jours"]["Mardi"]["quarts"]["Jour"]
-    assert qm["heures"] == {"Alice": {"C01 - Test": {"TR": 6.0, "TS": 0.0}}}
+    entry = qm["heures"]["Alice"]["C01 - Test"]
+    assert entry["TR"] == 6.0 and entry["TS"] == 0.0
     assert qm["equip_codes"] == {"Alice": ["C"]}
     assert qm["equip_hours"] == {"Alice": 4.0}
+    assert not at.exception
+
+
+def test_activity_hours_default_direct_mode(monkeypatch):
+    """Une activité sélectionnée démarre en mode TR/TS direct : champs TR/TS présents,
+    pas de time_input."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
+    _goto_saisie(at)
+    at.session_state["acts_Lundi_Jour_Alice"] = ["C01 - Test"]
+    at.run()
+    base = "Lundi_Jour_Alice_C01 - Test"
+    mode = [r for r in at.radio if r.key == f"mode_{base}"]
+    assert mode and mode[0].value == "TR/TS direct"
+    assert any(n.key == f"tr_{base}" for n in at.number_input)
+    assert not at.time_input
+    assert not at.exception
+
+
+def test_activity_plage_mode_shows_time_inputs_and_adds_range(monkeypatch):
+    """En mode Plage : le bouton d'ajout crée une plage avec deux time_input."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
+    _goto_saisie(at)
+    at.session_state["acts_Lundi_Jour_Alice"] = ["C01 - Test"]
+    at.run()
+    base = "Lundi_Jour_Alice_C01 - Test"
+    [r for r in at.radio if r.key == f"mode_{base}"][0].set_value("⏱ Plage").run()
+    # Aucune plage au départ -> bouton d'ajout présent, pas de time_input
+    assert any(b.key == f"rg_add_{base}" for b in at.button)
+    assert not at.time_input
+    # Ajouter une plage -> deux time_input apparaissent
+    [b for b in at.button if b.key == f"rg_add_{base}"][0].click().run()
+    assert len(at.time_input) == 2
+    assert not at.exception
+
+
+def test_plage_duration_feeds_tr_total(monkeypatch):
+    """Une plage 10:00->12:00 alimente TR=2.0 dans quart['heures']."""
+    import datetime
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
+    _goto_saisie(at)
+    at.session_state["acts_Lundi_Jour_Alice"] = ["C01 - Test"]
+    at.run()
+    base = "Lundi_Jour_Alice_C01 - Test"
+    [r for r in at.radio if r.key == f"mode_{base}"][0].set_value("⏱ Plage").run()
+    [b for b in at.button if b.key == f"rg_add_{base}"][0].click().run()
+    # Régler la plage sur 10:00 -> 12:00
+    tis = sorted(at.time_input, key=lambda t: t.key)
+    [t for t in at.time_input if t.key.startswith(f"rg_deb_{base}")][0].set_value(datetime.time(10, 0)).run()
+    [t for t in at.time_input if t.key.startswith(f"rg_fin_{base}")][0].set_value(datetime.time(12, 0)).run()
+    q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
+    entry = q["heures"]["Alice"]["C01 - Test"]
+    assert entry["mode"] == "plage"
+    assert entry["TR"] == 2.0 and entry["TS"] == 0.0
     assert not at.exception
 
 

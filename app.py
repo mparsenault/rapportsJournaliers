@@ -1078,6 +1078,89 @@ def _current_quart_name(jour):
 _HOURS_COLS = [4, 2, 2]
 
 
+def _render_ranges_editor(base, initial):
+    """Éditeur dynamique de plages (liste de {'debut','fin','type'}).
+
+    Garde une liste à ids stables dans session_state pour que l'ajout/retrait
+    ne décale pas les clés de widgets. Renvoie la liste courante des plages.
+    """
+    import datetime as _dt
+    lst_key = f"ranges_{base}"
+    seq_key = f"rangeseq_{base}"
+    if lst_key not in st.session_state:
+        seeded = [{"id": i, "debut": (r or {}).get("debut", "08:00"),
+                   "fin": (r or {}).get("fin", "08:00"), "type": (r or {}).get("type", "TR")}
+                  for i, r in enumerate(initial or [])]
+        st.session_state[lst_key] = seeded
+        st.session_state[seq_key] = len(seeded)
+    rows = st.session_state[lst_key]
+    result = []
+    for row in rows:
+        rid = row["id"]
+        dk, fk, kk = f"rg_deb_{base}_{rid}", f"rg_fin_{base}_{rid}", f"rg_knd_{base}_{rid}"
+        if dk not in st.session_state:
+            _h, _m = (int(x) for x in row["debut"].split(":"))
+            st.session_state[dk] = _dt.time(_h, _m)
+        if fk not in st.session_state:
+            _h, _m = (int(x) for x in row["fin"].split(":"))
+            st.session_state[fk] = _dt.time(_h, _m)
+        if kk not in st.session_state:
+            st.session_state[kk] = row["type"]
+        c1, c2, c3, c4, c5 = st.columns([3, 3, 2, 2, 1], vertical_alignment="center")
+        deb = c1.time_input("Début", key=dk, step=_dt.timedelta(minutes=15),
+                            label_visibility="collapsed", on_change=_mark_dirty)
+        fin = c2.time_input("Fin", key=fk, step=_dt.timedelta(minutes=15),
+                            label_visibility="collapsed", on_change=_mark_dirty)
+        knd = c3.radio("Type", ["TR", "TS"], key=kk, horizontal=True,
+                       label_visibility="collapsed", on_change=_mark_dirty)
+        deb_s, fin_s = deb.strftime("%H:%M"), fin.strftime("%H:%M")
+        dur = _range_hours(deb_s, fin_s)
+        c4.markdown(f"**{dur:.2f} h**" if dur > 0 else "⚠️ fin ≤ début")
+        if c5.button("✕", key=f"rg_del_{base}_{rid}", help="Retirer la plage"):
+            st.session_state[lst_key] = [r for r in rows if r["id"] != rid]
+            _mark_dirty()
+            st.rerun()
+        result.append({"debut": deb_s, "fin": fin_s, "type": knd})
+    if st.button("＋ Ajouter une plage", key=f"rg_add_{base}", use_container_width=True):
+        nid = st.session_state[seq_key]
+        st.session_state[seq_key] = nid + 1
+        st.session_state[lst_key] = rows + [{"id": nid, "debut": "08:00", "fin": "08:00", "type": "TR"}]
+        _mark_dirty()
+        st.rerun()
+    return result
+
+
+def _render_activity_hours(jour, quart_name, name, act, raw):
+    """Rend l'éditeur d'heures d'une activité (mode direct ou plage).
+
+    Renvoie l'entrée normalisée {'mode','ranges','TR','TS'}.
+    """
+    e = _norm_entry(raw)
+    base = f"{jour}_{quart_name}_{name}_{act}"
+    with st.container(border=True):
+        c1, c2 = st.columns([2, 3], vertical_alignment="center")
+        c1.markdown(f"**{act}**")
+        mode_key = f"mode_{base}"
+        if mode_key not in st.session_state:
+            st.session_state[mode_key] = "⏱ Plage" if e["mode"] == "plage" else "TR/TS direct"
+        mode = c2.radio("Mode de saisie", ["TR/TS direct", "⏱ Plage"], key=mode_key,
+                        horizontal=True, label_visibility="collapsed", on_change=_mark_dirty)
+        if mode == "⏱ Plage":
+            ranges = _render_ranges_editor(base, e["ranges"])
+            pair = _ranges_to_pair(ranges)
+            st.caption(f"Total : TR {pair['TR']:.2f} h · TS {pair['TS']:.2f} h")
+            return {"mode": "plage", "ranges": ranges, "TR": pair["TR"], "TS": pair["TS"]}
+        hc1, hc2 = st.columns(2)
+        tr_key, ts_key = f"tr_{base}", f"ts_{base}"
+        st.session_state.setdefault(tr_key, e["TR"])
+        st.session_state.setdefault(ts_key, e["TS"])
+        tr = hc1.number_input("TR", key=tr_key, min_value=0.0, step=0.25,
+                              format="%.2f", on_change=_mark_dirty)
+        ts = hc2.number_input("TS", key=ts_key, min_value=0.0, step=0.25,
+                              format="%.2f", on_change=_mark_dirty)
+        return {"mode": "direct", "ranges": [], "TR": float(tr), "TS": float(ts)}
+
+
 def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
     """Carte de saisie d'une ressource : activités (TR/TS), équipement (employé), prime, commentaire."""
     # --- Activités de la ressource (choisies parmi toutes les activités du projet) ---
@@ -1089,26 +1172,12 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
     sel_acts = st.multiselect("Activités", options, key=ms_key,
                               placeholder="🔍 Activités travaillées…", on_change=_mark_dirty)
 
-    if sel_acts:
-        hc1, hc2, hc3 = st.columns(_HOURS_COLS)
-        hc1.markdown("**Activité**")
-        hc2.markdown("**TR**")
-        hc3.markdown("**TS**")
     new_heures = {}
     for act in (sel_acts or []):
-        pair = _norm_pair(quart["heures"].get(name, {}).get(act, {}))
-        ca, cb, cc_ = st.columns(_HOURS_COLS, vertical_alignment="center")
-        ca.markdown(act)
-        tr_key = f"tr_{jour}_{quart_name}_{name}_{act}"
-        ts_key = f"ts_{jour}_{quart_name}_{name}_{act}"
-        st.session_state.setdefault(tr_key, pair["TR"])
-        st.session_state.setdefault(ts_key, pair["TS"])
-        tr = cb.number_input("TR", key=tr_key, min_value=0.0, step=0.25,
-                             format="%.2f", label_visibility="collapsed", on_change=_mark_dirty)
-        ts = cc_.number_input("TS", key=ts_key, min_value=0.0, step=0.25,
-                              format="%.2f", label_visibility="collapsed", on_change=_mark_dirty)
-        if tr > 0 or ts > 0:
-            new_heures[act] = {"TR": float(tr), "TS": float(ts)}
+        entry = _render_activity_hours(jour, quart_name, name, act,
+                                       quart["heures"].get(name, {}).get(act, {}))
+        if entry["TR"] > 0 or entry["TS"] > 0 or entry["ranges"]:
+            new_heures[act] = entry
     if new_heures:
         quart["heures"][name] = new_heures
     elif name in quart["heures"]:
