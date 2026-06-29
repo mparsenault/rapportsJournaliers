@@ -16,14 +16,12 @@ import pandas as pd
 import streamlit as st
 import data_source
 import reports
+import mailer
 
 try:
     from streamlit_js_eval import get_geolocation
 except Exception:  # composant optionnel — l'app marche sans (pas de capture GPS)
     get_geolocation = None
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 
 # --------------------------------------------------------------------------
 # Constantes / configuration
@@ -73,25 +71,6 @@ ONDEL_GREEN_DARK = "#077A88"
 ONDEL_ACCENT = "#26313F"
 ONDEL_ACCENT_DK = "#1A222C"
 ONDEL_LIGHT_BG = "#F8FAFB"
-
-# Styles Excel
-_TEAL = "0999AA"
-_TEAL_DK = "077A88"
-_BAND = "EEF8F9"
-_GREY = "D9E2E4"
-_THIN = Side(style="thin", color=_GREY)
-_BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
-_F_TITLE = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
-_F_HEAD = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-_F_LABEL = Font(name="Calibri", size=10, bold=True, color=_TEAL_DK)
-_F_TOTAL = Font(name="Calibri", size=10, bold=True, color="0E2A2E")
-_FILL_TITLE = PatternFill("solid", fgColor=_TEAL)
-_FILL_HEAD = PatternFill("solid", fgColor=_TEAL_DK)
-_FILL_BAND = PatternFill("solid", fgColor=_BAND)
-_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
-_LEFT = Alignment(horizontal="left", vertical="center")
-_RIGHT = Alignment(horizontal="right", vertical="center")
-_HOURS_FMT = "0.00"
 
 # --------------------------------------------------------------------------
 # State
@@ -216,6 +195,16 @@ def save_report_from_state():
         return True, "Rapport enregistré ✓"
     except Exception as exc:  # noqa: BLE001
         return False, f"Échec de l'enregistrement : {exc}"
+
+
+def envoyer_journee_par_courriel(projet, jour_name, day, destinataires, exported_by):
+    """Construit le .xlsx de la journée et l'envoie. Renvoie (ok, message)."""
+    if _day_total(day) <= 0:
+        return False, "Journée vide, rien à envoyer."
+    import excel_report
+    subject, html_body, filename, data = excel_report.build_day_email(
+        projet, jour_name, day, exported_by)
+    return mailer.send_mail(destinataires, subject, html_body, filename, data)
 
 
 def _empty_quart():
@@ -474,37 +463,6 @@ def _legacy_day(quart):
         "pers": build_df(quart.get("personnel", []), "Nom", with_equip=True),
         "equip": build_df(quart.get("equipements", []), "Véhicule"),
     }
-
-def _add_logo(ws, height_px=58):
-    if not os.path.exists(LOGO_PATH): return
-    from openpyxl.drawing.image import Image as XLImage
-    from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
-    from openpyxl.drawing.xdr import XDRPositiveSize2D
-    from openpyxl.utils.units import pixels_to_EMU
-    img = XLImage(LOGO_PATH)
-    w = round(292 / 280 * height_px)
-    marker = AnchorMarker(col=0, colOff=pixels_to_EMU(12), row=0, rowOff=pixels_to_EMU(8))
-    img.anchor = OneCellAnchor(_from=marker, ext=XDRPositiveSize2D(pixels_to_EMU(w), pixels_to_EMU(height_px)))
-    ws.add_image(img)
-
-def _build_synthese(ws, proj, legacy_jours, exported_by=""):
-    ws.title = "Synthèse"
-    _add_logo(ws)
-    ws.merge_cells("B1:F1")
-    t = ws["B1"]; t.value = "RAPPORT JOURNALIER — ONDEL"; t.font = _F_TITLE; t.fill = _FILL_TITLE
-    ws.column_dimensions["A"].width = 20
-    # Estampille de l'exportateur — DOIT rester la dernière écriture de la fonction (ws.max_row est évalué ici).
-    last = ws.max_row + 2
-    cell = ws.cell(row=last, column=1, value=f"Exporté par {exported_by or '—'}")
-    cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
-
-def build_workbook():
-    wb = Workbook()
-    legacy = {(j, q): _legacy_day(st.session_state.jours[j]["quarts"][q])
-              for j in JOURS for q in _day_quart_names(st.session_state.jours[j])}
-    _build_synthese(wb.active, st.session_state.projet, legacy, current_user()["name"])
-    buf = BytesIO(); wb.save(buf); buf.seek(0)
-    return buf
 
 # --------------------------------------------------------------------------
 # UI Components & CSS
@@ -1479,7 +1437,7 @@ def view_day_entry():
         missing.append("une température (AM ou PM)")
     if not quart.get("personnel"):
         missing.append("du personnel")
-    sb1, sb2 = st.columns([3, 1], vertical_alignment="center")
+    sb1, sb2, sb3 = st.columns([3, 1, 1], vertical_alignment="center")
     if missing:
         sb1.info("Pour continuer, pensez à ajouter : " + ", ".join(missing) + ".")
     elif st.session_state.get("dirty"):
@@ -1489,14 +1447,37 @@ def view_day_entry():
     if sb2.button("💾 Enregistrer", use_container_width=True, type="primary", key=f"save_{jour}"):
         ok, msg = save_report_from_state()
         (st.success if ok else st.error)(msg)
+    with sb3.popover("📧 Envoyer", use_container_width=True):
+        day = st.session_state.jours[jour]
+        if _day_total(day) <= 0:
+            st.caption("Journée vide, rien à envoyer.")
+        else:
+            default_to = ""
+            try:
+                default_to = st.secrets["graph"]["default_recipients"]
+            except Exception:
+                pass
+            to = st.text_input("Destinataire(s) (séparés par ;)", value=default_to,
+                               key=f"mail_to_{jour}")
+            if st.button("Envoyer le courriel", key=f"send_{jour}", type="primary"):
+                ok, msg = envoyer_journee_par_courriel(
+                    st.session_state.projet, jour, day, to, current_user()["name"])
+                (st.success if ok else st.error)(msg)
+
 
 def view_export():
+    import excel_report
     st.subheader("📥 Export Excel")
     with st.container(border=True):
-        st.write("Le fichier Excel contiendra la synthèse de la semaine ainsi que le détail par jour.")
+        st.write("Le fichier Excel contient le détail de chaque journée remplie de la semaine.")
         if st.button("🚀 Générer le fichier Excel", type="primary", use_container_width=True):
-            buf = build_workbook()
-            st.download_button("⬇️ Télécharger .xlsx", buf, file_name=f"Rapport_{st.session_state.projet['no']}.xlsx", use_container_width=True)
+            buf = excel_report.build_week_workbook(
+                st.session_state.projet, st.session_state.jours, JOURS,
+                exported_by=current_user()["name"])
+            st.download_button(
+                "⬇️ Télécharger .xlsx", buf,
+                file_name=f"Rapport_{st.session_state.projet['no']}.xlsx",
+                use_container_width=True)
 
 def main():
     st.set_page_config(page_title="Ondel Rapport journalier", layout="wide", initial_sidebar_state="collapsed")

@@ -15,8 +15,7 @@ pytest>=7.0
 #   session (ex. Streamlit Community Cloud, Python 3.14) ; Authlib ≥1.6 requis.
 Authlib>=1.3.2,<1.6 ; python_version < "3.10"
 Authlib>=1.6 ; python_version >= "3.10"
-# httpx : requis par le client Starlette d'Authlib (Streamlit ≥1.51 / serveur
-# Starlette, ex. Streamlit Cloud sur Python ≥3.10). Sans lui, l'import
-# `authlib.integrations.starlette_client` échoue → StreamlitMissingAuthlibError
-# (HTTP 500 sur /auth/login). Le serveur Tornado local (3.9) utilise requests.
-httpx ; python_version >= "3.10"
+# httpx : requis par mailer.py (envoi via Microsoft Graph) ET par le client
+# Starlette d'Authlib (Streamlit ≥1.51 / Python ≥3.10). Inconditionnel car
+# mailer est utilisé aussi en local (Python 3.9).
+httpx
