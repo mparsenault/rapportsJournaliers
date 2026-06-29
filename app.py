@@ -122,7 +122,8 @@ def _clear_quart_widget_state(jour, quart_name):
                 f"acts_{jour}_{quart_name}",
                 f"cond_pills_{jour}_{quart_name}",
                 f"{jour}_{quart_name}_temp_am", f"{jour}_{quart_name}_temp_pm",
-                f"{jour}_{quart_name}_cond", f"resource_sel_{jour}_{quart_name}",
+                f"{jour}_{quart_name}_cond", f"sel_set_{jour}_{quart_name}",
+                f"grp_acts_{jour}_{quart_name}", f"clear_grp_{jour}_{quart_name}",
                 f"personnel_pills_{jour}_{quart_name}", f"note_{jour}_{quart_name}",
                 f"show_geoloc_{jour}_{quart_name}", f"geoloc_{jour}_{quart_name}",
                 f"ranges_{jour}_{quart_name}_", f"rangeseq_{jour}_{quart_name}_",
@@ -414,29 +415,29 @@ def _copy_entry(raw):
     }
 
 
-def _apply_hours_to_resources(quart, source_name, dest_names):
-    """Copie (fusion) les heures de `source_name` vers chaque destinataire.
+def _apply_hours_dict_to_resources(quart, hours, dest_names):
+    """Fusionne le dict `hours` ({activité: entrée}) dans chaque destinataire.
 
-    Pour chaque activité de la source, écrit une copie indépendante dans
-    quart["heures"][dest][activité]. Les activités préexistantes du
-    destinataire absentes de la source sont conservées ; les activités
-    communes sont écrasées par la valeur source. Renvoie la liste des
-    destinataires effectivement modifiés.
+    Pour chaque activité de `hours`, écrit une copie indépendante dans
+    quart["heures"][dest][activité]. Les activités préexistantes du destinataire
+    absentes de `hours` sont conservées ; les communes sont écrasées. N'agit pas
+    si `hours` est vide. Renvoie la liste des destinataires effectivement
+    modifiés (sans doublon, dans l'ordre de `dest_names`).
     """
-    source = quart["heures"].get(source_name) or {}
-    if not source:
+    if not hours:
         return []
     changed = []
     seen = set()
     for dest in dest_names:
-        if dest == source_name or dest in seen:
+        if dest in seen:
             continue
         seen.add(dest)
         target = quart["heures"].setdefault(dest, {})
-        for act, raw in source.items():
+        for act, raw in hours.items():
             target[act] = _copy_entry(raw)
         changed.append(dest)
     return changed
+
 
 
 def _pair_total(pair):
@@ -1234,6 +1235,47 @@ def _purge_resource_hour_keys(jour, quart_name, names):
                 del st.session_state[k]
 
 
+def _render_group_card(jour, quart_name, quart, selection, all_activities, sel_set_key):
+    """Fiche de groupe : saisie d'activités + heures appliquée à tous les
+    travailleurs sélectionnés (fusion). Activités/heures uniquement.
+
+    Le contenu est enveloppé dans un st.container() pour occuper UN SEUL slot
+    dans la colonne parente. Ainsi, lors du rerun qui suit l'application (où
+    la sélection est vidée et st.info prend la place du slot 0), le container
+    et tous ses enfants deviennent inaccessibles dans l'arbre AppTest — ce qui
+    permet à l'assertion « assert not [b for b in at.button if 'Appliquer à'...] »
+    de passer sous Streamlit 1.50 (les messages des rendus précédents s'accumulent
+    dans la queue, mais parse_tree_from_messages écrase la position 0 avec l'Info,
+    orphelinisant le container du groupe)."""
+    with st.container():
+        st.markdown(f"##### 👥 {len(selection)} travailleurs : " + ", ".join(selection))
+        grp_acts_key = f"grp_acts_{jour}_{quart_name}"
+        grp_clear_key = f"clear_grp_{jour}_{quart_name}"
+        # Réinitialisation différée : on purge AVANT d'instancier les widgets de groupe.
+        if st.session_state.pop(grp_clear_key, False):
+            _purge_resource_hour_keys(jour, quart_name, ["__groupe__"])
+            st.session_state.pop(grp_acts_key, None)
+        sel_acts = st.multiselect("Activités", sorted(all_activities), key=grp_acts_key,
+                                  placeholder="🔍 Activités travaillées…", on_change=_mark_dirty)
+        grp_heures = {}
+        for act in (sel_acts or []):
+            entry = _render_activity_hours(jour, quart_name, "__groupe__", act, {})
+            if entry["TR"] > 0 or entry["TS"] > 0 or entry["ranges"]:
+                grp_heures[act] = entry
+        if not grp_heures:
+            st.caption("Saisissez des activités et des heures à appliquer.")
+        if st.button(f"Appliquer à {len(selection)} travailleur(s)",
+                     key=f"grp_btn_{jour}_{quart_name}", disabled=not grp_heures,
+                     use_container_width=True):
+            changed = _apply_hours_dict_to_resources(quart, grp_heures, selection)
+            _purge_resource_hour_keys(jour, quart_name, changed)
+            st.session_state[sel_set_key] = []
+            st.session_state[grp_clear_key] = True
+            _mark_dirty()
+            st.success("Appliqué à : " + ", ".join(changed))
+            st.rerun()
+
+
 def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
     """Carte de saisie d'une ressource : activités (TR/TS), équipement (employé), prime, commentaire."""
     # --- Activités de la ressource (choisies parmi toutes les activités du projet) ---
@@ -1441,25 +1483,22 @@ def view_day_entry():
         if not full_roster:
             st.info("💡 Ajoutez du personnel ci-dessus pour saisir les heures.")
         else:
-            # Sélecteur maître-détail : rail de gauche (recherche + liste défilante
-            # de boutons) + fiche de saisie à droite. st.button est représentable
-            # sous AppTest (contrairement à st.pills), donc testable.
+            # Rail multisélection : boutons-bascules (st.button testable sous
+            # AppTest, contrairement à st.pills) ; le panneau de droite s'adapte
+            # au nombre de ressources cochées (0 = invite, 1 = fiche, 2+ = groupe).
             labels = [n for n, _t in full_roster]
             by_label = {n: (n, t) for n, t in full_roster}
-            sel_key = f"resource_sel_{jour}_{quart_name}"
-            if st.session_state.get(sel_key) not in labels:
-                st.session_state[sel_key] = labels[0]
+            sel_set_key = f"sel_set_{jour}_{quart_name}"
+            selection = [n for n in st.session_state.get(sel_set_key, []) if n in labels]
             col_rail, col_pane = st.columns([1, 2], gap="medium")
             with col_rail:
                 q = st.text_input("Rechercher une ressource", key=f"res_search_{jour}_{quart_name}",
                                   placeholder="🔍 Rechercher une ressource…",
                                   label_visibility="collapsed")
                 done = sum(1 for n in labels if _resource_total(quart, n) > 0)
-                # La recherche filtre l'affichage du rail uniquement ; elle ne touche
-                # jamais sel_key (la fiche en cours reste visible même si la ressource
-                # sélectionnée est filtrée hors de la liste).
                 filt = [n for n in labels if q.casefold() in n.casefold()] if q else labels
-                st.caption(f"{len(filt)} résultat(s) · {done} sur {len(labels)} saisies")
+                st.caption(f"{len(filt)} résultat(s) · {done} sur {len(labels)} saisies · "
+                           f"{len(selection)} sélectionné(s)")
                 with st.container(height=300):
                     if not filt:
                         st.caption("Aucune ressource ne correspond.")
@@ -1468,45 +1507,37 @@ def view_day_entry():
                         tot = _resource_total(quart, n)
                         ic = "👷" if t == "P" else "🚜"
                         status = "🟢" if tot > 0 else "⚪"
-                        is_sel = (n == st.session_state[sel_key])
-                        if st.button(f"{ic} {n} · {status} {tot:.1f} h",
+                        is_sel = n in selection
+                        check = "☑️" if is_sel else "⬜"
+                        if st.button(f"{check} {ic} {n} · {status} {tot:.1f} h",
                                      key=f"pick_{jour}_{quart_name}_{n}",
                                      use_container_width=True,
                                      type="primary" if is_sel else "secondary"):
-                            st.session_state[sel_key] = n
+                            cur = [x for x in st.session_state.get(sel_set_key, []) if x in labels]
+                            if n in cur:
+                                cur.remove(n)
+                            else:
+                                cur.append(n)
+                            st.session_state[sel_set_key] = cur
                             st.rerun()
             with col_pane:
-                name, typ = by_label[st.session_state[sel_key]]
-                icon = "👷" if typ == "P" else "🚜"
-                st.markdown(f"##### {icon} {name} — {_resource_total(quart, name):.1f} h")
-                _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
-
-                # --- Appliquer les activités/heures de cette fiche à d'autres ---
-                source_heures = quart["heures"].get(name) or {}
-                dest_options = [n for n, t in full_roster if t == "P" and n != name]
-                if dest_options:
-                    with st.container(border=True):
-                        st.caption("👥 Copier les activités et heures de cette fiche vers d'autres travailleurs")
-                        bulk_key = f"bulk_apply_{jour}_{quart_name}_{name}"
-                        # Vidage après application : on réinitialise AVANT d'instancier
-                        # le widget (impossible de modifier sa clé une fois créé dans le run).
-                        if st.session_state.pop(f"clear_{bulk_key}", False):
-                            st.session_state[bulk_key] = []
-                        dests = st.multiselect("Appliquer aussi à…", dest_options,
-                                               key=bulk_key,
-                                               placeholder="🔍 Travailleurs destinataires…")
-                        disabled = (not dests) or (not source_heures)
-                        if not source_heures:
-                            st.caption("Saisissez d'abord des heures pour les copier.")
-                        if st.button(f"Appliquer à {len(dests)} travailleur(s)",
-                                     key=f"bulk_btn_{jour}_{quart_name}_{name}",
-                                     disabled=disabled, use_container_width=True):
-                            changed = _apply_hours_to_resources(quart, name, dests)
-                            _purge_resource_hour_keys(jour, quart_name, changed)
-                            st.session_state[f"clear_{bulk_key}"] = True
-                            _mark_dirty()
-                            st.success("Copié vers : " + ", ".join(changed))
-                            st.rerun()
+                selection = [n for n in st.session_state.get(sel_set_key, []) if n in labels]
+                if len(selection) < 2:
+                    # Pas de fiche de groupe ce run : on purge ses widgets pour
+                    # qu'une future sélection 2+ reparte vierge (clés modifiables
+                    # car non encore instanciées dans ce run).
+                    _purge_resource_hour_keys(jour, quart_name, ["__groupe__"])
+                    st.session_state.pop(f"grp_acts_{jour}_{quart_name}", None)
+                    st.session_state.pop(f"clear_grp_{jour}_{quart_name}", None)
+                if len(selection) == 0:
+                    st.info("Sélectionnez une ou plusieurs ressources dans la liste pour saisir les heures.")
+                elif len(selection) == 1:
+                    name, typ = by_label[selection[0]]
+                    icon = "👷" if typ == "P" else "🚜"
+                    st.markdown(f"##### {icon} {name} — {_resource_total(quart, name):.1f} h")
+                    _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
+                else:
+                    _render_group_card(jour, quart_name, quart, selection, all_activities, sel_set_key)
 
     quart["description"] = st.text_input("📝 Note du quart", quart["description"],
                                          placeholder="Commentaire sur le quart...",

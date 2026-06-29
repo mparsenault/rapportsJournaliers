@@ -54,6 +54,10 @@ def _open_day_for_entry(monkeypatch, jour="Lundi", personnel=("Alice",)):
     at.session_state["jours"][jour] = day
     at.session_state["active_day"] = jour
     at.session_state["view"] = "day_entry"
+    # Pré-sélectionner le premier travailleur pour compatibilité avec les tests qui
+    # accédaient directement à la fiche (ancienne sélection automatique).
+    if personnel:
+        at.session_state[f"sel_set_{jour}_Jour"] = [personnel[0]]
     at.run()
     return at
 
@@ -369,17 +373,17 @@ def test_manual_add_employee_confirms_and_clears_field(monkeypatch):
 
 def test_resource_selector_shows_selected_card(monkeypatch):
     """Le sélecteur d'employé affiche la fiche du membre choisi (et masque les autres).
-    On pilote la sélection via session_state (st.pills non cliquable sous AppTest)."""
+    On pilote la sélection via le bouton pick_ du rail multi-sélection."""
     at = _open_day_for_entry(monkeypatch, personnel=("Alice", "Bob"))
     _goto_saisie(at)
-    # Alice (premier du roster) est sélectionnée par défaut -> sa fiche est rendue
+    # Alice (premier du roster) est pré-sélectionnée -> sa fiche est rendue
     assert any(m.key == "acts_Lundi_Jour_Alice" for m in at.multiselect)
-    assert not any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
-    # Sélectionner Bob -> sa fiche s'affiche, celle d'Alice disparaît
-    at.session_state["resource_sel_Lundi_Jour"] = "Bob"
-    at.run()
+    # Sélectionner Bob seul (désélectionner Alice, sélectionner Bob) -> fiche Bob
+    [b for b in at.button if b.key == "pick_Lundi_Jour_Alice"][0].click().run()  # désélectionne Alice
+    [b for b in at.button if b.key == "pick_Lundi_Jour_Bob"][0].click().run()    # sélectionne Bob
     assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
-    assert not any(m.key == "acts_Lundi_Jour_Alice" for m in at.multiselect)
+    assert at.session_state["sel_set_Lundi_Jour"] == ["Bob"]
+    assert not any(getattr(m, "key", None) == "acts_Lundi_Jour_Alice" for m in at.multiselect)
     assert not at.exception
 
 
@@ -390,27 +394,28 @@ def test_resource_search_filters_rail(monkeypatch):
     # Sans filtre : un bouton pick_ par ressource
     pick_keys = {b.key for b in at.button if b.key and b.key.startswith("pick_Lundi_Jour_")}
     assert pick_keys == {"pick_Lundi_Jour_Alice", "pick_Lundi_Jour_Bob", "pick_Lundi_Jour_Charlie"}
-    # Filtre "ali" -> seule Alice reste, la sélection par défaut (Alice) est inchangée
+    # Filtre "ali" -> seule Alice reste dans le rail, la sélection (Alice) est inchangée
     search = [t for t in at.text_input if t.key == "res_search_Lundi_Jour"][0]
     search.set_value("ali").run()
     pick_keys = {b.key for b in at.button if b.key and b.key.startswith("pick_Lundi_Jour_")}
     assert pick_keys == {"pick_Lundi_Jour_Alice"}
-    assert at.session_state["resource_sel_Lundi_Jour"] == "Alice"
+    assert at.session_state["sel_set_Lundi_Jour"] == ["Alice"]
     assert not at.exception
 
 
 def test_resource_pick_button_selects_and_survives_filter(monkeypatch):
-    """Cliquer un bouton du rail sélectionne la ressource ; un filtre qui l'exclut
-    n'efface pas la fiche affichée."""
+    """Cliquer un bouton du rail ajoute la ressource à la sélection ; un filtre qui
+    l'exclut du rail n'efface pas sa fiche affichée."""
     at = _open_day_for_entry(monkeypatch, personnel=("Alice", "Bob"))
     _goto_saisie(at)
-    # Cliquer Bob -> sa fiche s'affiche
-    [b for b in at.button if b.key == "pick_Lundi_Jour_Bob"][0].click().run()
-    assert at.session_state["resource_sel_Lundi_Jour"] == "Bob"
+    # Désélectionner Alice puis sélectionner Bob seul -> fiche de Bob
+    [b for b in at.button if b.key == "pick_Lundi_Jour_Alice"][0].click().run()  # désélectionne Alice
+    [b for b in at.button if b.key == "pick_Lundi_Jour_Bob"][0].click().run()    # sélectionne Bob
+    assert at.session_state["sel_set_Lundi_Jour"] == ["Bob"]
     assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
-    # Filtrer sur "ali" (exclut Bob du rail) -> la fiche de Bob reste affichée
+    # Filtrer sur "ali" (exclut Bob du rail visible) -> la fiche de Bob reste affichée
     [t for t in at.text_input if t.key == "res_search_Lundi_Jour"][0].set_value("ali").run()
-    assert at.session_state["resource_sel_Lundi_Jour"] == "Bob"
+    assert at.session_state["sel_set_Lundi_Jour"] == ["Bob"]
     assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
     assert not at.exception
 
@@ -670,37 +675,6 @@ def test_clear_quart_widget_state_clears_plage_keys():
         assert prefix in source, f"Le préfixe '{prefix}' manque dans _clear_quart_widget_state"
 
 
-def test_appliquer_heures_a_autre_travailleur(monkeypatch):
-    at = _run_with_project(monkeypatch)
-    # Naviguer vers la saisie du lundi
-    [b for b in at.button if "Lundi" in (b.label or "")][0].click().run()
-    jour = at.session_state["active_day"]
-    _aq_key = f"active_quart_{jour}"
-    quart_name = (at.session_state[_aq_key]
-                  if _aq_key in at.session_state
-                  else list(at.session_state["jours"][jour]["quarts"].keys())[0])
-    quart = at.session_state["jours"][jour]["quarts"][quart_name]
-    quart["personnel"] = ["Alice", "Bob"]
-    quart["heures"] = {"Alice": {"Excavation": {"mode": "direct", "ranges": [],
-                                               "TR": 4.0, "TS": 0.0}}}
-    at.session_state[f"resource_sel_{jour}_{quart_name}"] = "Alice"
-    at.run()
-    # cocher Bob comme destinataire
-    ms = [m for m in at.multiselect if m.label == "Appliquer aussi à…"][0]
-    ms.set_value(["Bob"]).run()
-    # cliquer le bouton d'application
-    btn = [b for b in at.button if "Appliquer à" in b.label][0]
-    btn.click().run()
-    # Le clic ne doit lever aucune exception Streamlit (on ne peut pas modifier
-    # la clé d'un widget après son instanciation dans le run).
-    assert not at.exception
-    quart = at.session_state["jours"][jour]["quarts"][quart_name]
-    assert quart["heures"]["Bob"]["Excavation"]["TR"] == 4.0
-    # Le multiselect des destinataires est vidé après l'application.
-    ms_after = [m for m in at.multiselect if m.label == "Appliquer aussi à…"]
-    assert ms_after and ms_after[0].value == []
-
-
 def test_purge_resource_hour_keys_anchored_no_prefix_collision(monkeypatch):
     """Régression : purger 'Dan' ne doit pas supprimer les clés de 'Daniel'.
 
@@ -734,4 +708,89 @@ def test_purge_resource_hour_keys_anchored_no_prefix_collision(monkeypatch):
     assert f"mode_{jour}_{quart_name}_Daniel_Coffrage" in fake_state
     assert f"rg_deb_{jour}_{quart_name}_Daniel_Coffrage_0" in fake_state
 
+
+def _enter_day_with_staff(monkeypatch, staff, activities=("Excavation",)):
+    import data_source
+    monkeypatch.setattr(data_source, "get_activities", lambda pid: list(activities))
+    at = _run_with_project(monkeypatch)
+    [b for b in at.button if "Lundi" in (b.label or "")][0].click().run()
+    jour = at.session_state["active_day"]
+    _aq = f"active_quart_{jour}"
+    quart_name = (at.session_state[_aq] if _aq in at.session_state
+                  else list(at.session_state["jours"][jour]["quarts"].keys())[0])
+    quart = at.session_state["jours"][jour]["quarts"][quart_name]
+    quart["personnel"] = list(staff)
+    at.run()
+    return at, jour, quart_name
+
+
+def _rail_click(at, jour, quart_name, name):
+    btn = [b for b in at.button if b.key == f"pick_{jour}_{quart_name}_{name}"][0]
+    btn.click().run()
+
+
+def test_groupe_apparait_quand_2_selectionnes(monkeypatch):
+    at, jour, qn = _enter_day_with_staff(monkeypatch, ["Alice", "Bob"])
+    _rail_click(at, jour, qn, "Alice")
+    _rail_click(at, jour, qn, "Bob")
+    # La fiche de groupe expose un multiselect "Activités" et le bouton d'application.
+    assert [m for m in at.multiselect if m.label == "Activités"]
+    assert [b for b in at.button if "Appliquer à" in (b.label or "")]
+
+
+def test_un_seul_selectionne_montre_fiche_individuelle(monkeypatch):
+    at, jour, qn = _enter_day_with_staff(monkeypatch, ["Alice", "Bob"])
+    _rail_click(at, jour, qn, "Alice")
+    # Fiche individuelle : pas de bouton « Appliquer à », présence du multiselect Activités.
+    assert not [b for b in at.button if "Appliquer à" in (b.label or "")]
+    assert [m for m in at.multiselect if m.label == "Activités"]
+
+
+def test_ancienne_section_appliquer_aussi_absente(monkeypatch):
+    at, jour, qn = _enter_day_with_staff(monkeypatch, ["Alice", "Bob"])
+    _rail_click(at, jour, qn, "Alice")
+    assert not [m for m in at.multiselect if m.label == "Appliquer aussi à…"]
+
+
+def test_groupe_applique_heures_et_vide_selection(monkeypatch):
+    at, jour, qn = _enter_day_with_staff(monkeypatch, ["Alice", "Bob"])
+    _rail_click(at, jour, qn, "Alice")
+    _rail_click(at, jour, qn, "Bob")
+    # choisir une activité de groupe
+    ms = [m for m in at.multiselect if m.label == "Activités"][0]
+    ms.set_value(["Excavation"]).run()
+    # saisir des heures TR
+    tr = [n for n in at.number_input if n.label == "TR"][0]
+    tr.set_value(8.0).run()
+    # appliquer
+    btn = [b for b in at.button if "Appliquer à" in (b.label or "")][0]
+    btn.click().run()
+    assert not at.exception
+    quart = at.session_state["jours"][jour]["quarts"][qn]
+    assert quart["heures"]["Alice"]["Excavation"]["TR"] == 8.0
+    assert quart["heures"]["Bob"]["Excavation"]["TR"] == 8.0
+    # la sélection est vidée -> retour à l'invite (plus de bouton "Appliquer à")
+    assert at.session_state[f"sel_set_{jour}_{qn}"] == []
+    assert not [b for b in at.button if "Appliquer à" in (b.label or "")]
+
+
+def test_groupe_repart_vierge_apres_deselection(monkeypatch):
+    at, jour, qn = _enter_day_with_staff(monkeypatch, ["Alice", "Bob", "Carol"])
+    _rail_click(at, jour, qn, "Alice")
+    _rail_click(at, jour, qn, "Bob")
+    # saisir des heures de groupe sans appliquer
+    ms = [m for m in at.multiselect if m.label == "Activités"][0]
+    ms.set_value(["Excavation"]).run()
+    tr = [n for n in at.number_input if n.label == "TR"][0]
+    tr.set_value(5.0).run()
+    # désélectionner Bob -> 1 sélectionné (fiche individuelle), pas d'application
+    _rail_click(at, jour, qn, "Bob")
+    # re-sélectionner Carol -> 2 sélectionnés -> fiche de groupe doit être vierge
+    _rail_click(at, jour, qn, "Carol")
+    assert not at.exception
+    ms2 = [m for m in at.multiselect if m.label == "Activités"][0]
+    assert ms2.value == []
+    # rien n'a été écrit dans le modèle (aucune application)
+    quart = at.session_state["jours"][jour]["quarts"][qn]
+    assert quart["heures"] == {}
 
