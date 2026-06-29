@@ -59,73 +59,33 @@ def _open_day_for_entry(monkeypatch, jour="Lundi", personnel=("Alice",)):
 
 
 def _goto_saisie(at):
-    """Passe à l'étape Saisie des heures (le flux n'a plus d'onglets)."""
-    at.session_state["day_entry_step"] = "saisie"
+    """Compat : la saisie est désormais sur la page unique (plus d'étape)."""
     return at.run()
 
 
 def _goto_config(at):
-    """Revient à l'étape Configuration."""
-    at.session_state["day_entry_step"] = "config"
+    """Compat : la config est désormais sur la page unique (plus d'étape)."""
     return at.run()
 
 
-def test_day_entry_starts_on_config_step(monkeypatch):
-    """À l'ouverture d'une journée, on est sur la Configuration (pas de grille d'heures)."""
-    at = _open_day_for_entry(monkeypatch)
-    assert at.session_state["day_entry_step"] == "config"
-    assert any(b.key == "save_next_Lundi" for b in at.button)
-    assert not any(b.key == "back_config_Lundi" for b in at.button)
-    assert not any(b.key == "save_Lundi" for b in at.button)
-    assert not any((t.key or "") == "roster_search_Lundi_Jour" for t in at.text_input)
+def test_missing_requirements_shows_soft_warning_but_save_present(monkeypatch):
+    """Sans personnel ni température : message informatif affiché, mais le bouton
+    Enregistrer existe quand même (plus de gate dur, plus de save_next)."""
+    at = _open_day_for_entry(monkeypatch, personnel=())
+    assert not any(b.key == "save_next_Lundi" for b in at.button)
+    save = [b for b in at.button if b.key == "save_Lundi"]
+    assert save and not save[0].disabled
+    infos = " ".join(i.value for i in at.info)
+    assert "température" in infos and "personnel" in infos
     assert not at.exception
 
 
-def test_save_and_navigate_advances_to_saisie(monkeypatch):
-    """Le bouton « Enregistrer et saisir les heures → » enregistre puis ouvre la Saisie."""
-    import reports
-    monkeypatch.setattr(reports, "save_report", lambda *a, **k: None)
-    at = _open_day_for_entry(monkeypatch)   # personnel Alice présent
-    # Prérequis désormais : personnel + température (plus d'activité en config).
-    [n for n in at.number_input if n.key == "Lundi_Jour_temp_am"][0].set_value(5.0).run()
-    [b for b in at.button if b.key == "save_next_Lundi"][0].click().run()
-    assert at.session_state["day_entry_step"] == "saisie"
-    assert at.session_state["dirty"] is False
-    assert any(b.key == "back_config_Lundi" for b in at.button)
-    assert any(b.key == "save_Lundi" for b in at.button)
-    assert not at.exception
-
-
-def test_back_returns_to_config(monkeypatch):
-    """« ← Retour à la configuration » ramène à l'étape 1 sans perdre l'état."""
-    at = _open_day_for_entry(monkeypatch)
-    _goto_saisie(at)
-    assert at.session_state["day_entry_step"] == "saisie"
-    [b for b in at.button if b.key == "back_config_Lundi"][0].click().run()
-    assert at.session_state["day_entry_step"] == "config"
-    assert any(b.key == "save_next_Lundi" for b in at.button)
-    assert not at.exception
-
-
-def test_save_next_disabled_until_requirements_met(monkeypatch):
-    """Le bouton de l'étape Config est bloqué tant qu'il manque température
-    OU personnel ; il s'active une fois les deux remplis."""
-    at = _open_day_for_entry(monkeypatch, personnel=())   # rien de rempli
-    assert [b for b in at.button if b.key == "save_next_Lundi"][0].disabled
-    [t for t in at.text_input if t.key == "new_employee_Lundi_Jour"][0].set_value("Alice").run()
-    [b for b in at.button if b.key == "add_manual_Lundi_Jour"][0].click().run()
-    [n for n in at.number_input if n.key == "Lundi_Jour_temp_am"][0].set_value(12.0).run()
-    assert not [b for b in at.button if b.key == "save_next_Lundi"][0].disabled
-    assert not at.exception
-
-
-def test_save_next_requires_temperature(monkeypatch):
-    """Règle température isolée : personnel présent mais température vide
-    → bouton bloqué ; une température (même 0/négative) le débloque."""
+def test_requirements_met_clears_warning(monkeypatch):
+    """Personnel + température remplis : plus de message « Pour continuer »."""
     at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
-    assert [b for b in at.button if b.key == "save_next_Lundi"][0].disabled  # temp vide
     [n for n in at.number_input if n.key == "Lundi_Jour_temp_am"][0].set_value(0.0).run()
-    assert not [b for b in at.button if b.key == "save_next_Lundi"][0].disabled
+    infos = " ".join(i.value for i in at.info)
+    assert "Pour continuer" not in infos
     assert not at.exception
 
 
@@ -318,7 +278,8 @@ def test_day_hours_entry_updates_model(monkeypatch):
     [n for n in at.number_input if n.key == "tr_Lundi_Jour_Alice_C01 - Test"][0].set_value(8.0).run()
     [n for n in at.number_input if n.key == "ts_Lundi_Jour_Alice_C01 - Test"][0].set_value(1.5).run()
     q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
-    assert q["heures"]["Alice"]["C01 - Test"] == {"TR": 8.0, "TS": 1.5}
+    entry = q["heures"]["Alice"]["C01 - Test"]
+    assert entry["TR"] == 8.0 and entry["TS"] == 1.5
     assert not at.exception
 
 
@@ -406,20 +367,6 @@ def test_manual_add_employee_confirms_and_clears_field(monkeypatch):
     assert not at.exception
 
 
-def test_manual_add_equipment_confirms_and_clears_field(monkeypatch):
-    """Ajout d'un équipement : ajouté, champ vidé, état marqué « non enregistré »
-    (même principe que l'ajout manuel de personnel ; toast non capturé par AppTest)."""
-    at = _open_day_for_entry(monkeypatch)
-    field = [t for t in at.text_input if t.key == "new_equipment_Lundi_Jour"][0]
-    field.set_value("Camion").run()
-    [b for b in at.button if b.key == "add_equipment_Lundi_Jour"][0].click().run()
-    q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
-    assert "Camion" in q["equipements"]
-    assert at.session_state["new_equipment_Lundi_Jour"] == ""   # champ vidé
-    assert at.session_state["dirty"] is True
-    assert not at.exception
-
-
 def test_resource_selector_shows_selected_card(monkeypatch):
     """Le sélecteur d'employé affiche la fiche du membre choisi (et masque les autres).
     On pilote la sélection via session_state (st.pills non cliquable sous AppTest)."""
@@ -433,6 +380,60 @@ def test_resource_selector_shows_selected_card(monkeypatch):
     at.run()
     assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
     assert not any(m.key == "acts_Lundi_Jour_Alice" for m in at.multiselect)
+    assert not at.exception
+
+
+def test_resource_search_filters_rail(monkeypatch):
+    """La recherche filtre les boutons du rail sans changer la sélection."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice", "Bob", "Charlie"))
+    _goto_saisie(at)
+    # Sans filtre : un bouton pick_ par ressource
+    pick_keys = {b.key for b in at.button if b.key and b.key.startswith("pick_Lundi_Jour_")}
+    assert pick_keys == {"pick_Lundi_Jour_Alice", "pick_Lundi_Jour_Bob", "pick_Lundi_Jour_Charlie"}
+    # Filtre "ali" -> seule Alice reste, la sélection par défaut (Alice) est inchangée
+    search = [t for t in at.text_input if t.key == "res_search_Lundi_Jour"][0]
+    search.set_value("ali").run()
+    pick_keys = {b.key for b in at.button if b.key and b.key.startswith("pick_Lundi_Jour_")}
+    assert pick_keys == {"pick_Lundi_Jour_Alice"}
+    assert at.session_state["resource_sel_Lundi_Jour"] == "Alice"
+    assert not at.exception
+
+
+def test_resource_pick_button_selects_and_survives_filter(monkeypatch):
+    """Cliquer un bouton du rail sélectionne la ressource ; un filtre qui l'exclut
+    n'efface pas la fiche affichée."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice", "Bob"))
+    _goto_saisie(at)
+    # Cliquer Bob -> sa fiche s'affiche
+    [b for b in at.button if b.key == "pick_Lundi_Jour_Bob"][0].click().run()
+    assert at.session_state["resource_sel_Lundi_Jour"] == "Bob"
+    assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
+    # Filtrer sur "ali" (exclut Bob du rail) -> la fiche de Bob reste affichée
+    [t for t in at.text_input if t.key == "res_search_Lundi_Jour"][0].set_value("ali").run()
+    assert at.session_state["resource_sel_Lundi_Jour"] == "Bob"
+    assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
+    assert not at.exception
+
+
+def test_add_employee_via_manual_appears_in_rail(monkeypatch):
+    """Ajouter un employé (ajout manuel) le fait apparaître comme bouton du rail
+    sur la même page, sans changement d'étape."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
+    assert any(b.key == "pick_Lundi_Jour_Alice" for b in at.button)
+    [t for t in at.text_input if t.key == "new_employee_Lundi_Jour"][0].set_value("Bob").run()
+    [b for b in at.button if b.key == "add_manual_Lundi_Jour"][0].click().run()
+    assert any(b.key == "pick_Lundi_Jour_Bob" for b in at.button)
+    assert not at.exception
+
+
+def test_single_page_has_meteo_and_hours_together(monkeypatch):
+    """La page unique montre la météo ET la saisie des heures en même temps,
+    sans bouton d'étape."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
+    assert any(n.key == "Lundi_Jour_temp_am" for n in at.number_input)   # météo
+    assert any(m.key == "acts_Lundi_Jour_Alice" for m in at.multiselect)  # fiche heures
+    assert not any(b.key == "back_config_Lundi" for b in at.button)
+    assert not any((t.key or "").startswith("new_equipment_") for t in at.text_input)  # équip. retiré
     assert not at.exception
 
 
@@ -524,7 +525,8 @@ def test_hours_are_distinct_per_quart(monkeypatch):
     # Soir : pas d'heures, activités à choisir indépendamment
     qj = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
     qs = at.session_state["jours"]["Lundi"]["quarts"]["Soir"]
-    assert qj["heures"]["Alice"]["C01 - Test"] == {"TR": 8.0, "TS": 0.0}
+    entry_j = qj["heures"]["Alice"]["C01 - Test"]
+    assert entry_j["TR"] == 8.0 and entry_j["TS"] == 0.0
     assert qs["heures"] == {}
     assert not at.exception
 
@@ -566,21 +568,22 @@ def test_add_quart_can_copy_team_and_activities(monkeypatch):
 
 
 def test_saisie_card_table_header_and_no_repeated_labels(monkeypatch):
-    """Étape Saisie : une activité sélectionnée affiche l'en-tête de tableau
-    Activité/TR/TS, sans étiquette répétée « TR — … », et la saisie écrit
-    toujours dans la forme {"TR","TS"}."""
+    """Étape Saisie : une activité sélectionnée affiche les champs TR/TS en mode direct,
+    sans étiquette répétée « TR — … », et la saisie écrit toujours au moins TR/TS."""
     at = _open_day_for_entry(monkeypatch)   # personnel Alice, activité "C01 - Test"
     _goto_saisie(at)
     ms = [m for m in at.multiselect if m.key == "acts_Lundi_Jour_Alice"][0]
     ms.set_value(["C01 - Test"]).run()
-    md = " ".join((m.value or "") for m in at.markdown)
-    assert "Activité" in md and "TR" in md and "TS" in md   # ligne d'en-tête présente
+    # En mode direct (défaut) : champs TR et TS présents
+    assert any(n.key == "tr_Lundi_Jour_Alice_C01 - Test" for n in at.number_input)
+    assert any(n.key == "ts_Lundi_Jour_Alice_C01 - Test" for n in at.number_input)
     labels = [(n.label or "") for n in at.number_input]
     assert not any(l.startswith("TR —") or l.startswith("TS —") for l in labels)
     tr = [n for n in at.number_input if n.key == "tr_Lundi_Jour_Alice_C01 - Test"][0]
     tr.set_value(8.0).run()
     q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
-    assert q["heures"]["Alice"]["C01 - Test"] == {"TR": 8.0, "TS": 0.0}
+    entry = q["heures"]["Alice"]["C01 - Test"]
+    assert entry["TR"] == 8.0 and entry["TS"] == 0.0
     assert not at.exception
 
 
@@ -597,9 +600,73 @@ def test_copy_day_copies_hours_and_equipment(monkeypatch):
     at.run()
     [b for b in at.button if b.key == "copy_Mardi"][0].click().run()
     qm = at.session_state["jours"]["Mardi"]["quarts"]["Jour"]
-    assert qm["heures"] == {"Alice": {"C01 - Test": {"TR": 6.0, "TS": 0.0}}}
+    entry = qm["heures"]["Alice"]["C01 - Test"]
+    assert entry["TR"] == 6.0 and entry["TS"] == 0.0
     assert qm["equip_codes"] == {"Alice": ["C"]}
     assert qm["equip_hours"] == {"Alice": 4.0}
     assert not at.exception
+
+
+def test_activity_hours_default_direct_mode(monkeypatch):
+    """Une activité sélectionnée démarre en mode TR/TS direct : champs TR/TS présents,
+    pas de time_input."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
+    _goto_saisie(at)
+    at.session_state["acts_Lundi_Jour_Alice"] = ["C01 - Test"]
+    at.run()
+    base = "Lundi_Jour_Alice_C01 - Test"
+    mode = [r for r in at.radio if r.key == f"mode_{base}"]
+    assert mode and mode[0].value == "TR/TS direct"
+    assert any(n.key == f"tr_{base}" for n in at.number_input)
+    assert not at.time_input
+    assert not at.exception
+
+
+def test_activity_plage_mode_shows_time_inputs_and_adds_range(monkeypatch):
+    """En mode Plage : le bouton d'ajout crée une plage avec deux time_input."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
+    _goto_saisie(at)
+    at.session_state["acts_Lundi_Jour_Alice"] = ["C01 - Test"]
+    at.run()
+    base = "Lundi_Jour_Alice_C01 - Test"
+    [r for r in at.radio if r.key == f"mode_{base}"][0].set_value("⏱ Plage").run()
+    # Aucune plage au départ -> bouton d'ajout présent, pas de time_input
+    assert any(b.key == f"rg_add_{base}" for b in at.button)
+    assert not at.time_input
+    # Ajouter une plage -> deux time_input apparaissent
+    [b for b in at.button if b.key == f"rg_add_{base}"][0].click().run()
+    assert len(at.time_input) == 2
+    assert not at.exception
+
+
+def test_plage_duration_feeds_tr_total(monkeypatch):
+    """Une plage 10:00->12:00 alimente TR=2.0 dans quart['heures']."""
+    import datetime
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice",))
+    _goto_saisie(at)
+    at.session_state["acts_Lundi_Jour_Alice"] = ["C01 - Test"]
+    at.run()
+    base = "Lundi_Jour_Alice_C01 - Test"
+    [r for r in at.radio if r.key == f"mode_{base}"][0].set_value("⏱ Plage").run()
+    [b for b in at.button if b.key == f"rg_add_{base}"][0].click().run()
+    # Régler la plage sur 10:00 -> 12:00
+    [t for t in at.time_input if t.key.startswith(f"rg_deb_{base}")][0].set_value(datetime.time(10, 0)).run()
+    [t for t in at.time_input if t.key.startswith(f"rg_fin_{base}")][0].set_value(datetime.time(12, 0)).run()
+    q = at.session_state["jours"]["Lundi"]["quarts"]["Jour"]
+    entry = q["heures"]["Alice"]["C01 - Test"]
+    assert entry["mode"] == "plage"
+    assert entry["TR"] == 2.0 and entry["TS"] == 0.0
+    assert not at.exception
+
+
+def test_clear_quart_widget_state_clears_plage_keys():
+    """_clear_quart_widget_state purge aussi les clés de l'éditeur de plages."""
+    import app
+    import inspect
+    # Vérifier que les préfixes plage sont dans la liste des préfixes de _clear_quart_widget_state
+    source = inspect.getsource(app._clear_quart_widget_state)
+    plage_prefixes = ["ranges_", "rangeseq_", "mode_", "rg_deb_", "rg_fin_", "rg_knd_"]
+    for prefix in plage_prefixes:
+        assert prefix in source, f"Le préfixe '{prefix}' manque dans _clear_quart_widget_state"
 
 

@@ -8,6 +8,7 @@ import os
 import urllib.parse
 import urllib.request
 import base64
+import datetime
 from datetime import date, timedelta
 from io import BytesIO
 
@@ -134,7 +135,10 @@ def _clear_quart_widget_state(jour, quart_name):
                 f"{jour}_{quart_name}_temp_am", f"{jour}_{quart_name}_temp_pm",
                 f"{jour}_{quart_name}_cond", f"resource_sel_{jour}_{quart_name}",
                 f"personnel_pills_{jour}_{quart_name}", f"note_{jour}_{quart_name}",
-                f"show_geoloc_{jour}_{quart_name}", f"geoloc_{jour}_{quart_name}")
+                f"show_geoloc_{jour}_{quart_name}", f"geoloc_{jour}_{quart_name}",
+                f"ranges_{jour}_{quart_name}_", f"rangeseq_{jour}_{quart_name}_",
+                f"mode_{jour}_{quart_name}_", f"rg_deb_{jour}_{quart_name}_",
+                f"rg_fin_{jour}_{quart_name}_", f"rg_knd_{jour}_{quart_name}_")
     for k in list(st.session_state.keys()):
         if any(k.startswith(p) for p in prefixes):
             del st.session_state[k]
@@ -333,6 +337,60 @@ def _norm_pair(pair):
         return {"TR": _to_hours(pair.get("TR")), "TS": _to_hours(pair.get("TS"))}
     return {"TR": _to_hours(pair), "TS": 0.0}
 
+def _hhmm_to_min(s):
+    """'HH:MM' -> minutes depuis minuit ; None si invalide."""
+    try:
+        h, m = str(s).split(":")
+        h, m = int(h), int(m)
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return h * 60 + m
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def _min_to_hhmm(mins):
+    """minutes depuis minuit -> 'HH:MM' (borné 00:00..23:59)."""
+    mins = max(0, min(int(mins), 23 * 60 + 59))
+    return f"{mins // 60:02d}:{mins % 60:02d}"
+
+
+def _range_hours(debut, fin):
+    """Durée en heures décimales entre deux 'HH:MM' ; 0.0 si fin<=début ou invalide."""
+    a, b = _hhmm_to_min(debut), _hhmm_to_min(fin)
+    if a is None or b is None or b <= a:
+        return 0.0
+    return (b - a) / 60.0
+
+
+def _ranges_to_pair(ranges):
+    """{'TR': Σ durées TR, 'TS': Σ durées TS} pour une liste de plages."""
+    tr = ts = 0.0
+    for r in ranges or []:
+        d = _range_hours((r or {}).get("debut"), (r or {}).get("fin"))
+        if (r or {}).get("type") == "TS":
+            ts += d
+        else:
+            tr += d
+    return {"TR": tr, "TS": ts}
+
+
+def _norm_entry(entry):
+    """Normalise une entrée d'heures d'activité -> {'mode','ranges','TR','TS'}.
+
+    Tolère l'ancien format ({'TR','TS'} ou scalaire hérité) -> mode 'direct'.
+    En mode 'plage', TR/TS sont dérivés des plages.
+    """
+    if isinstance(entry, dict):
+        ranges = list(entry.get("ranges") or [])
+        mode = entry.get("mode") or ("plage" if ranges else "direct")
+        if mode == "plage":
+            pair = _ranges_to_pair(ranges)
+        else:
+            pair = {"TR": _to_hours(entry.get("TR")), "TS": _to_hours(entry.get("TS"))}
+        return {"mode": mode, "ranges": ranges, "TR": pair["TR"], "TS": pair["TS"]}
+    return {"mode": "direct", "ranges": [], "TR": _to_hours(entry), "TS": 0.0}
+
 def _pair_total(pair):
     """Total d'un couple {'TR','TS'} -> float (0 si vide/invalide)."""
     p = _norm_pair(pair)
@@ -436,8 +494,12 @@ def get_css():
     <style>
     /* Global Styles */
     .stApp {{ background-color: {ONDEL_LIGHT_BG}; }}
-    /* Réduit le padding par défaut (~6rem) en haut de l'app */
-    .stMainBlockContainer, .block-container {{ padding-top: 3rem !important; }}
+    /* Réduit le padding par défaut (~6rem haut, ~5rem latéral) de l'app */
+    .stMainBlockContainer, .block-container {{
+        padding-top: 3rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }}
 
     /* Header — bannière teal construite comme un conteneur Streamlit stylé,
        pour pouvoir y intégrer le bouton Retour (widget) à gauche. */
@@ -937,7 +999,6 @@ def view_dashboard():
             if st.button(label, key=f"go_{jour}", use_container_width=True, disabled=not projet_choisi):
                 st.session_state.active_day = jour
                 st.session_state.view = "day_entry"
-                st.session_state.day_entry_step = "config"
                 _q0 = _day_quart_names(day)[0]
                 if not day["quarts"][_q0]["temp_am"] and proj["lat"]:
                     _fill_weather_for_quart(jour, _q0)
@@ -1025,6 +1086,88 @@ def _current_quart_name(jour):
 _HOURS_COLS = [4, 2, 2]
 
 
+def _render_ranges_editor(base, initial):
+    """Éditeur dynamique de plages (liste de {'debut','fin','type'}).
+
+    Garde une liste à ids stables dans session_state pour que l'ajout/retrait
+    ne décale pas les clés de widgets. Renvoie la liste courante des plages.
+    """
+    lst_key = f"ranges_{base}"
+    seq_key = f"rangeseq_{base}"
+    if lst_key not in st.session_state:
+        seeded = [{"id": i, "debut": (r or {}).get("debut", "08:00"),
+                   "fin": (r or {}).get("fin", "08:00"), "type": (r or {}).get("type", "TR")}
+                  for i, r in enumerate(initial or [])]
+        st.session_state[lst_key] = seeded
+        st.session_state[seq_key] = len(seeded)
+    rows = st.session_state[lst_key]
+    result = []
+    for row in rows:
+        rid = row["id"]
+        dk, fk, kk = f"rg_deb_{base}_{rid}", f"rg_fin_{base}_{rid}", f"rg_knd_{base}_{rid}"
+        if dk not in st.session_state:
+            _h, _m = (int(x) for x in row["debut"].split(":"))
+            st.session_state[dk] = datetime.time(_h, _m)
+        if fk not in st.session_state:
+            _h, _m = (int(x) for x in row["fin"].split(":"))
+            st.session_state[fk] = datetime.time(_h, _m)
+        if kk not in st.session_state:
+            st.session_state[kk] = row["type"]
+        c1, c2, c3, c4, c5 = st.columns([3, 3, 2, 2, 1], vertical_alignment="center")
+        deb = c1.time_input("Début", key=dk, step=datetime.timedelta(minutes=15),
+                            label_visibility="collapsed", on_change=_mark_dirty)
+        fin = c2.time_input("Fin", key=fk, step=datetime.timedelta(minutes=15),
+                            label_visibility="collapsed", on_change=_mark_dirty)
+        knd = c3.radio("Type", ["TR", "TS"], key=kk, horizontal=True,
+                       label_visibility="collapsed", on_change=_mark_dirty)
+        deb_s, fin_s = deb.strftime("%H:%M"), fin.strftime("%H:%M")
+        dur = _range_hours(deb_s, fin_s)
+        c4.markdown(f"**{dur:.2f} h**" if dur > 0 else "⚠️ fin ≤ début")
+        if c5.button("✕", key=f"rg_del_{base}_{rid}", help="Retirer la plage"):
+            st.session_state[lst_key] = [r for r in rows if r["id"] != rid]
+            _mark_dirty()
+            st.rerun()
+        result.append({"debut": deb_s, "fin": fin_s, "type": knd})
+    if st.button("＋ Ajouter une plage", key=f"rg_add_{base}", use_container_width=True):
+        nid = st.session_state[seq_key]
+        st.session_state[seq_key] = nid + 1
+        st.session_state[lst_key] = rows + [{"id": nid, "debut": "08:00", "fin": "08:00", "type": "TR"}]
+        _mark_dirty()
+        st.rerun()
+    return result
+
+
+def _render_activity_hours(jour, quart_name, name, act, raw):
+    """Rend l'éditeur d'heures d'une activité (mode direct ou plage).
+
+    Renvoie l'entrée normalisée {'mode','ranges','TR','TS'}.
+    """
+    e = _norm_entry(raw)
+    base = f"{jour}_{quart_name}_{name}_{act}"
+    with st.container(border=True):
+        c1, c2 = st.columns([2, 3], vertical_alignment="center")
+        c1.markdown(f"**{act}**")
+        mode_key = f"mode_{base}"
+        if mode_key not in st.session_state:
+            st.session_state[mode_key] = "⏱ Plage" if e["mode"] == "plage" else "TR/TS direct"
+        mode = c2.radio("Mode de saisie", ["TR/TS direct", "⏱ Plage"], key=mode_key,
+                        horizontal=True, label_visibility="collapsed", on_change=_mark_dirty)
+        if mode == "⏱ Plage":
+            ranges = _render_ranges_editor(base, e["ranges"])
+            pair = _ranges_to_pair(ranges)
+            st.caption(f"Total : TR {pair['TR']:.2f} h · TS {pair['TS']:.2f} h")
+            return {"mode": "plage", "ranges": ranges, "TR": pair["TR"], "TS": pair["TS"]}
+        hc1, hc2 = st.columns(2)
+        tr_key, ts_key = f"tr_{base}", f"ts_{base}"
+        st.session_state.setdefault(tr_key, e["TR"])
+        st.session_state.setdefault(ts_key, e["TS"])
+        tr = hc1.number_input("TR", key=tr_key, min_value=0.0, step=0.25,
+                              format="%.2f", on_change=_mark_dirty)
+        ts = hc2.number_input("TS", key=ts_key, min_value=0.0, step=0.25,
+                              format="%.2f", on_change=_mark_dirty)
+        return {"mode": "direct", "ranges": [], "TR": float(tr), "TS": float(ts)}
+
+
 def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
     """Carte de saisie d'une ressource : activités (TR/TS), équipement (employé), prime, commentaire."""
     # --- Activités de la ressource (choisies parmi toutes les activités du projet) ---
@@ -1036,26 +1179,12 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
     sel_acts = st.multiselect("Activités", options, key=ms_key,
                               placeholder="🔍 Activités travaillées…", on_change=_mark_dirty)
 
-    if sel_acts:
-        hc1, hc2, hc3 = st.columns(_HOURS_COLS)
-        hc1.markdown("**Activité**")
-        hc2.markdown("**TR**")
-        hc3.markdown("**TS**")
     new_heures = {}
     for act in (sel_acts or []):
-        pair = _norm_pair(quart["heures"].get(name, {}).get(act, {}))
-        ca, cb, cc_ = st.columns(_HOURS_COLS, vertical_alignment="center")
-        ca.markdown(act)
-        tr_key = f"tr_{jour}_{quart_name}_{name}_{act}"
-        ts_key = f"ts_{jour}_{quart_name}_{name}_{act}"
-        st.session_state.setdefault(tr_key, pair["TR"])
-        st.session_state.setdefault(ts_key, pair["TS"])
-        tr = cb.number_input("TR", key=tr_key, min_value=0.0, step=0.5,
-                             format="%.1f", label_visibility="collapsed", on_change=_mark_dirty)
-        ts = cc_.number_input("TS", key=ts_key, min_value=0.0, step=0.5,
-                              format="%.1f", label_visibility="collapsed", on_change=_mark_dirty)
-        if tr > 0 or ts > 0:
-            new_heures[act] = {"TR": float(tr), "TS": float(ts)}
+        entry = _render_activity_hours(jour, quart_name, name, act,
+                                       quart["heures"].get(name, {}).get(act, {}))
+        if entry["TR"] > 0 or entry["TS"] > 0 or entry["ranges"]:
+            new_heures[act] = entry
     if new_heures:
         quart["heures"][name] = new_heures
     elif name in quart["heures"]:
@@ -1075,8 +1204,8 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
             del quart["equip_codes"][name]
         eqh_key = f"eqh_{jour}_{quart_name}_{name}"
         st.session_state.setdefault(eqh_key, _to_hours(quart["equip_hours"].get(name)))
-        eqh = ce2.number_input("Hrs Éq.", key=eqh_key, min_value=0.0, step=0.5,
-                               format="%.1f", on_change=_mark_dirty)
+        eqh = ce2.number_input("Hrs Éq.", key=eqh_key, min_value=0.0, step=0.25,
+                               format="%.2f", on_change=_mark_dirty)
         if eqh > 0:
             quart["equip_hours"][name] = float(eqh)
         elif name in quart["equip_hours"]:
@@ -1124,232 +1253,189 @@ def view_day_entry():
             st.session_state.active_day = next_day
             st.rerun()
 
-    # Flux en deux étapes (plus d'onglets) : on configure, on enregistre, puis on saisit.
-    step = st.session_state.setdefault("day_entry_step", "config")
-
-    # Sélecteur de quart : rendu AVANT la résolution du quart courant, pour consommer
-    # la sélection en attente posée par _add_quart (sinon la vue afficherait le quart
-    # fraîchement ajouté un cycle en retard). Affiché à l'étape Configuration seulement ;
-    # à l'étape Saisie aucun _add_quart n'a lieu, donc aucune sélection en attente à
-    # consommer.
-    if step == "config":
-        _render_quart_selector(jour, day, prev_day)
+    # Page unique : météo, personnel et saisie des heures sur un seul écran.
+    # Le sélecteur de quart est rendu AVANT la résolution du quart courant pour
+    # consommer la sélection en attente posée par _add_quart (sinon le quart
+    # fraîchement ajouté s'afficherait un cycle en retard).
+    _render_quart_selector(jour, day, prev_day)
     quart_name = _current_quart_name(jour)
     quart = day["quarts"][quart_name]
 
-    if step == "config":
-        st.markdown("### Configuration du quart")
-        st.caption("Configurez les activités, la météo et le personnel avant de saisir les heures.")
-        with st.container(border=True, key="meteo_card"):
-            header_cols = st.columns([3, 1], vertical_alignment="center")
-            header_cols[0].markdown("🌤️ **Météo**")
-            proj = st.session_state.projet
-            has_date = day.get("date") is not None
-            if not has_date:
-                st.caption("⚠️ Date non définie")
-            _geo_msg = st.session_state.pop(f"geo_msg_{jour}_{quart_name}", None)
-            if _geo_msg:
-                (st.success if _geo_msg[0] == "success" else st.warning)(_geo_msg[1])
-            if header_cols[1].button("📍 GPS", key=f"{jour}_{quart_name}_geo",
-                        disabled=not has_date, help="Utiliser ma position GPS actuelle",
-                        use_container_width=True):
-                st.session_state[f"show_geoloc_{jour}_{quart_name}"] = True
-                st.rerun()
-            if st.session_state.get(f"show_geoloc_{jour}_{quart_name}"):
-                from streamlit_js_eval import get_geolocation
-                loc = get_geolocation(component_key=f"geoloc_{jour}_{quart_name}")
-                if loc and isinstance(loc, dict) and loc.get("coords"):
-                    lat = loc["coords"].get("latitude")
-                    lon = loc["coords"].get("longitude")
-                    st.session_state.pop(f"show_geoloc_{jour}_{quart_name}", None)
-                    if lat is not None and lon is not None:
-                        proj["lat"] = float(lat); proj["lon"] = float(lon)
-                        success = _fill_weather_for_quart(jour, quart_name)
-                        st.session_state[f"{jour}_{quart_name}_temp_am"] = quart["temp_am"]
-                        st.session_state[f"{jour}_{quart_name}_temp_pm"] = quart["temp_pm"]
-                        st.session_state[f"cond_pills_{jour}_{quart_name}"] = [c for c in (quart["conditions"] or []) if c in CONDITIONS]
-                        st.session_state[f"geo_msg_{jour}_{quart_name}"] = (
-                            ("success", f"Position {proj['lat']:.4f}, {proj['lon']:.4f} — météo récupérée.")
-                            if success else
-                            ("warning", "Position trouvée mais météo indisponible pour cette date."))
-                        st.rerun()
-                else:
-                    st.caption("📡 Autorisez la géolocalisation dans le navigateur…")
-            temp_cols = st.columns(2)
-            st.session_state.setdefault(f"{jour}_{quart_name}_temp_am", quart["temp_am"])
-            st.session_state.setdefault(f"{jour}_{quart_name}_temp_pm", quart["temp_pm"])
-            quart["temp_am"] = temp_cols[0].number_input("Température AM (°C)",
-                                      key=f"{jour}_{quart_name}_temp_am", step=1.0, format="%.1f")
-            quart["temp_pm"] = temp_cols[1].number_input("Température PM (°C)",
-                                      key=f"{jour}_{quart_name}_temp_pm", step=1.0, format="%.1f")
-            st.caption("Conditions météo")
-            cond_key = f"cond_pills_{jour}_{quart_name}"
-            if cond_key not in st.session_state:
-                st.session_state[cond_key] = [c for c in (quart["conditions"] or []) if c in CONDITIONS]
-            _sel_cond = st.pills("Conditions météo", CONDITIONS, selection_mode="multi",
-                                 key=cond_key, label_visibility="collapsed", on_change=_mark_dirty)
-            quart["conditions"] = list(_sel_cond or [])
-
-       
-        with st.container(border=True, key="equipe_box"):
-            ph = st.columns([3, 1], vertical_alignment="center")
-            ph[0].markdown("👷 **Personnel présent**")
-            ph[1].markdown(
-                f'<div class="count-chip count-chip--teal">{len(quart.get("personnel", []))} sélectionné(s)</div>',
-                unsafe_allow_html=True)
-            # Confirmation d'un ajout manuel (posée au run précédent, affichée après le rerun :
-            # un st.toast appelé avant st.rerun() serait perdu — même pattern que geo_msg).
-            _add_msg_key = f"add_msg_{jour}_{quart_name}"
-            if _add_msg_key in st.session_state:
-                st.toast(f"✅ « {st.session_state.pop(_add_msg_key)} » ajouté")
-            _staff_project = set(data_source.get_project_staff(st.session_state.projet.get("id_project")))
-            _staff_all = set(data_source.get_all_staff())
-            _staff_current = set(quart.get("personnel", []))
-            if _staff_project:
-                st.caption("Employés du projet (cliquez pour sélectionner)")
-                # Seed unique de l'état (pas de default= avec key= : ça "absorbe"
-                # le 1ᵉʳ clic et force un double-clic). Convention du fichier.
-                pills_key = f"personnel_pills_{jour}_{quart_name}"
-                if pills_key not in st.session_state:
-                    st.session_state[pills_key] = [e for e in quart.get("personnel", []) if e in _staff_project]
-                selected_pills = st.pills(
-                    "Employés du projet", sorted(_staff_project), selection_mode="multi",
-                    key=pills_key, label_visibility="collapsed", on_change=_mark_dirty)
-                _non_project = [e for e in quart.get("personnel", []) if e not in _staff_project]
-                quart["personnel"] = list(selected_pills or []) + _non_project
-            _staff_other = sorted(_staff_all - _staff_project - _staff_current)
-            if _staff_other:
-                st.caption("Ajouter un employé d'un autre projet")
-                other_employee = st.selectbox(
-                    "Autres employés", [""] + _staff_other,
-                    key=f"other_employee_{jour}_{quart_name}", label_visibility="collapsed",
-                    placeholder="Rechercher un employé...", index=0)
-                if other_employee and other_employee not in quart["personnel"]:
-                    quart["personnel"].append(other_employee)
-                    st.rerun()
-            st.caption("Ou ajouter manuellement")
-            col_input, col_btn = st.columns([4, 1])
-            new_emp_key = f"new_employee_{jour}_{quart_name}"
-            # Vidage du champ après un ajout : on réinitialise AVANT d'instancier le
-            # widget (impossible de modifier sa clé une fois le widget créé dans le run).
-            if st.session_state.pop(f"clear_{new_emp_key}", False):
-                st.session_state[new_emp_key] = ""
-            new_employee = col_input.text_input("Nom", key=new_emp_key,
-                                                placeholder="Nom de l'employé...", label_visibility="collapsed")
-            if col_btn.button("➕", key=f"add_manual_{jour}_{quart_name}", disabled=not new_employee.strip(),
-                                help="Ajouter", use_container_width=True):
-                _name = new_employee.strip()
-                if _name and _name not in quart["personnel"]:
-                    quart["personnel"].append(_name)
-                    st.session_state[_add_msg_key] = _name
-                    st.session_state[f"clear_{new_emp_key}"] = True
-                    _mark_dirty()
-                    st.rerun()
-
-        
-        with st.container(border=True, key="equip_box"):
-            st.markdown("🚜 **Équipements sur place**")
-            # Confirmation d'un ajout (posée au run précédent, affichée après le rerun :
-            # un st.toast avant st.rerun() serait perdu — même pattern que le personnel).
-            _add_eq_msg_key = f"add_eq_msg_{jour}_{quart_name}"
-            if _add_eq_msg_key in st.session_state:
-                st.toast(f"✅ « {st.session_state.pop(_add_eq_msg_key)} » ajouté")
-            if quart.get("equipements"):
-                with st.container(key="equip_chips"):
-                    for eq in quart["equipements"]:
-                        if st.button(f"{eq}   ✕", key=f"remove_eq_{jour}_{quart_name}_{eq}",
-                                     help="Retirer"):
-                            quart["equipements"].remove(eq)
-                            _mark_dirty()
-                            st.rerun()
-            else:
-                st.caption("Aucun équipement sélectionné")
-            col_input_eq, col_btn_eq = st.columns([4, 1])
-            new_eq_key = f"new_equipment_{jour}_{quart_name}"
-            # Vidage du champ après un ajout : on réinitialise AVANT d'instancier le
-            # widget (impossible de modifier sa clé une fois le widget créé dans le run).
-            if st.session_state.pop(f"clear_{new_eq_key}", False):
-                st.session_state[new_eq_key] = ""
-            new_equipment = col_input_eq.text_input("Équipement", key=new_eq_key,
-                                                    placeholder="Ex: Camion, Excavatrice...", label_visibility="collapsed")
-            if col_btn_eq.button("➕", key=f"add_equipment_{jour}_{quart_name}", disabled=not new_equipment.strip(),
-                                    help="Ajouter", use_container_width=True):
-                _eq = new_equipment.strip()
-                if _eq and _eq not in quart["equipements"]:
-                    quart["equipements"].append(_eq)
-                    st.session_state[_add_eq_msg_key] = _eq
-                    st.session_state[f"clear_{new_eq_key}"] = True
-                    _mark_dirty()
-                    st.rerun()
-
-        st.divider()
-        # Prérequis avant de passer à la saisie des heures (0/négatif = température
-        # remplie ; seule l'absence de valeur, None, compte comme « non remplie »).
-        missing = []
-        if quart["temp_am"] is None and quart["temp_pm"] is None:
-            missing.append("une température (AM ou PM)")
-        if not quart.get("personnel"):
-            missing.append("du personnel")
-        cb1, cb2 = st.columns([3, 1], vertical_alignment="center")
-        if missing:
-            cb1.info("Pour continuer, ajoutez : " + ", ".join(missing) + ".")
-        elif st.session_state.get("dirty"):
-            cb1.warning("⚠️ Modifications non enregistrées — pensez à enregistrer avant de quitter.")
-        else:
-            cb1.caption("✓ Toutes les modifications sont enregistrées.")
-        if cb2.button("💾 Enregistrer et saisir les heures →", use_container_width=True,
-                      type="primary", key=f"save_next_{jour}", disabled=bool(missing)):
-            ok, msg = save_report_from_state()
-            if ok:
-                st.session_state.day_entry_step = "saisie"
-                st.rerun()
-            else:
-                st.error(msg)
-
-    else:
-        sb_top1, sb_top2 = st.columns([2, 3], vertical_alignment="center")
-        if sb_top1.button("← Retour à la configuration", key=f"back_config_{jour}",
-                          use_container_width=True):
-            st.session_state.day_entry_step = "config"
+    with st.container(border=True, key="meteo_card"):
+        header_cols = st.columns([3, 1], vertical_alignment="center")
+        header_cols[0].markdown("🌤️ **Météo**")
+        proj = st.session_state.projet
+        has_date = day.get("date") is not None
+        if not has_date:
+            st.caption("⚠️ Date non définie")
+        _geo_msg = st.session_state.pop(f"geo_msg_{jour}_{quart_name}", None)
+        if _geo_msg:
+            (st.success if _geo_msg[0] == "success" else st.warning)(_geo_msg[1])
+        if header_cols[1].button("📍 GPS", key=f"{jour}_{quart_name}_geo",
+                    disabled=not has_date, help="Utiliser ma position GPS actuelle",
+                    use_container_width=True):
+            st.session_state[f"show_geoloc_{jour}_{quart_name}"] = True
             st.rerun()
-        sb_top2.markdown(f"**Quart : {quart_name}**")
+        if st.session_state.get(f"show_geoloc_{jour}_{quart_name}"):
+            from streamlit_js_eval import get_geolocation
+            loc = get_geolocation(component_key=f"geoloc_{jour}_{quart_name}")
+            if loc and isinstance(loc, dict) and loc.get("coords"):
+                lat = loc["coords"].get("latitude")
+                lon = loc["coords"].get("longitude")
+                st.session_state.pop(f"show_geoloc_{jour}_{quart_name}", None)
+                if lat is not None and lon is not None:
+                    proj["lat"] = float(lat); proj["lon"] = float(lon)
+                    success = _fill_weather_for_quart(jour, quart_name)
+                    st.session_state[f"{jour}_{quart_name}_temp_am"] = quart["temp_am"]
+                    st.session_state[f"{jour}_{quart_name}_temp_pm"] = quart["temp_pm"]
+                    st.session_state[f"cond_pills_{jour}_{quart_name}"] = [c for c in (quart["conditions"] or []) if c in CONDITIONS]
+                    st.session_state[f"geo_msg_{jour}_{quart_name}"] = (
+                        ("success", f"Position {proj['lat']:.4f}, {proj['lon']:.4f} — météo récupérée.")
+                        if success else
+                        ("warning", "Position trouvée mais météo indisponible pour cette date."))
+                    st.rerun()
+            else:
+                st.caption("📡 Autorisez la géolocalisation dans le navigateur…")
+        temp_cols = st.columns(2)
+        st.session_state.setdefault(f"{jour}_{quart_name}_temp_am", quart["temp_am"])
+        st.session_state.setdefault(f"{jour}_{quart_name}_temp_pm", quart["temp_pm"])
+        quart["temp_am"] = temp_cols[0].number_input("Température AM (°C)",
+                                  key=f"{jour}_{quart_name}_temp_am", step=1.0, format="%.1f")
+        quart["temp_pm"] = temp_cols[1].number_input("Température PM (°C)",
+                                  key=f"{jour}_{quart_name}_temp_pm", step=1.0, format="%.1f")
+        st.caption("Conditions météo")
+        cond_key = f"cond_pills_{jour}_{quart_name}"
+        if cond_key not in st.session_state:
+            st.session_state[cond_key] = [c for c in (quart["conditions"] or []) if c in CONDITIONS]
+        _sel_cond = st.pills("Conditions météo", CONDITIONS, selection_mode="multi",
+                             key=cond_key, label_visibility="collapsed", on_change=_mark_dirty)
+        quart["conditions"] = list(_sel_cond or [])
+
+    with st.container(border=True, key="equipe_box"):
+        ph = st.columns([3, 1], vertical_alignment="center")
+        ph[0].markdown("👷 **Personnel présent**")
+        ph[1].markdown(
+            f'<div class="count-chip count-chip--teal">{len(quart.get("personnel", []))} sélectionné(s)</div>',
+            unsafe_allow_html=True)
+        # Confirmation d'un ajout manuel (posée au run précédent, affichée après le rerun :
+        # un st.toast appelé avant st.rerun() serait perdu — même pattern que geo_msg).
+        _add_msg_key = f"add_msg_{jour}_{quart_name}"
+        if _add_msg_key in st.session_state:
+            st.toast(f"✅ « {st.session_state.pop(_add_msg_key)} » ajouté")
+        _staff_project = set(data_source.get_project_staff(st.session_state.projet.get("id_project")))
+        _staff_all = set(data_source.get_all_staff())
+        _staff_current = set(quart.get("personnel", []))
+        if _staff_project:
+            st.caption("Employés du projet (cliquez pour sélectionner)")
+            # Seed unique de l'état (pas de default= avec key= : ça "absorbe"
+            # le 1ᵉʳ clic et force un double-clic). Convention du fichier.
+            pills_key = f"personnel_pills_{jour}_{quart_name}"
+            if pills_key not in st.session_state:
+                st.session_state[pills_key] = [e for e in quart.get("personnel", []) if e in _staff_project]
+            selected_pills = st.pills(
+                "Employés du projet", sorted(_staff_project), selection_mode="multi",
+                key=pills_key, label_visibility="collapsed", on_change=_mark_dirty)
+            _non_project = [e for e in quart.get("personnel", []) if e not in _staff_project]
+            quart["personnel"] = list(selected_pills or []) + _non_project
+        _staff_other = sorted(_staff_all - _staff_project - _staff_current)
+        if _staff_other:
+            st.caption("Ajouter un employé d'un autre projet")
+            other_employee = st.selectbox(
+                "Autres employés", [""] + _staff_other,
+                key=f"other_employee_{jour}_{quart_name}", label_visibility="collapsed",
+                placeholder="Rechercher un employé...", index=0)
+            if other_employee and other_employee not in quart["personnel"]:
+                quart["personnel"].append(other_employee)
+                st.rerun()
+        st.caption("Ou ajouter manuellement")
+        col_input, col_btn = st.columns([4, 1])
+        new_emp_key = f"new_employee_{jour}_{quart_name}"
+        # Vidage du champ après un ajout : on réinitialise AVANT d'instancier le
+        # widget (impossible de modifier sa clé une fois le widget créé dans le run).
+        if st.session_state.pop(f"clear_{new_emp_key}", False):
+            st.session_state[new_emp_key] = ""
+        new_employee = col_input.text_input("Nom", key=new_emp_key,
+                                            placeholder="Nom de l'employé...", label_visibility="collapsed")
+        if col_btn.button("➕", key=f"add_manual_{jour}_{quart_name}", disabled=not new_employee.strip(),
+                            help="Ajouter", use_container_width=True):
+            _name = new_employee.strip()
+            if _name and _name not in quart["personnel"]:
+                quart["personnel"].append(_name)
+                st.session_state[_add_msg_key] = _name
+                st.session_state[f"clear_{new_emp_key}"] = True
+                _mark_dirty()
+                st.rerun()
+
+        # --- Saisie des heures (rail + fiche), sur la même carte que le personnel ---
         full_roster = _roster(quart)
-        st.markdown("#### 🕐 Saisie des heures")
         all_activities = data_source.get_activities(st.session_state.projet.get("id_project"))
+        st.divider()
+        st.markdown("#### 🕐 Saisie des heures")
         if not full_roster:
-            st.info("💡 Commencez par sélectionner le **personnel / équipements** dans la configuration.")
+            st.info("💡 Ajoutez du personnel ci-dessus pour saisir les heures.")
         else:
-            # Libellés = noms bruts ; l'icône 👷/🚜 est portée par l'en-tête de la
-            # fiche. (st.radio en ligne plutôt que st.pills : la sélection simple de
-            # st.pills n'est pas représentable sous AppTest — les tests ne pourraient
-            # plus rendre l'étape Saisie.)
+            # Sélecteur maître-détail : rail de gauche (recherche + liste défilante
+            # de boutons) + fiche de saisie à droite. st.button est représentable
+            # sous AppTest (contrairement à st.pills), donc testable.
             labels = [n for n, _t in full_roster]
             by_label = {n: (n, t) for n, t in full_roster}
             sel_key = f"resource_sel_{jour}_{quart_name}"
             if st.session_state.get(sel_key) not in labels:
                 st.session_state[sel_key] = labels[0]
-            sel_label = st.radio("Employé / équipement", labels, key=sel_key,
-                                 horizontal=True, label_visibility="collapsed")
-            if sel_label not in by_label:
-                sel_label = labels[0]
-            name, typ = by_label[sel_label]
-            icon = "👷" if typ == "P" else "🚜"
-            st.markdown(f"##### {icon} {name} — {_resource_total(quart, name):.1f} h")
-            _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
-        st.divider()
-        quart["description"] = st.text_input("📝 Note du quart", quart["description"],
-                                             placeholder="Commentaire sur le quart...",
-                                             key=f"note_{jour}_{quart_name}", on_change=_mark_dirty)
+            col_rail, col_pane = st.columns([1, 2], gap="medium")
+            with col_rail:
+                q = st.text_input("Rechercher une ressource", key=f"res_search_{jour}_{quart_name}",
+                                  placeholder="🔍 Rechercher une ressource…",
+                                  label_visibility="collapsed")
+                done = sum(1 for n in labels if _resource_total(quart, n) > 0)
+                # La recherche filtre l'affichage du rail uniquement ; elle ne touche
+                # jamais sel_key (la fiche en cours reste visible même si la ressource
+                # sélectionnée est filtrée hors de la liste).
+                filt = [n for n in labels if q.casefold() in n.casefold()] if q else labels
+                st.caption(f"{len(filt)} résultat(s) · {done} sur {len(labels)} saisies")
+                with st.container(height=300):
+                    if not filt:
+                        st.caption("Aucune ressource ne correspond.")
+                    for n in filt:
+                        _n, t = by_label[n]
+                        tot = _resource_total(quart, n)
+                        ic = "👷" if t == "P" else "🚜"
+                        status = "🟢" if tot > 0 else "⚪"
+                        is_sel = (n == st.session_state[sel_key])
+                        if st.button(f"{ic} {n} · {status} {tot:.1f} h",
+                                     key=f"pick_{jour}_{quart_name}_{n}",
+                                     use_container_width=True,
+                                     type="primary" if is_sel else "secondary"):
+                            st.session_state[sel_key] = n
+                            st.rerun()
+            with col_pane:
+                name, typ = by_label[st.session_state[sel_key]]
+                icon = "👷" if typ == "P" else "🚜"
+                st.markdown(f"##### {icon} {name} — {_resource_total(quart, name):.1f} h")
+                _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
 
-        st.divider()
-        sb1, sb2 = st.columns([3, 1], vertical_alignment="center")
-        if st.session_state.get("dirty"):
-            sb1.warning("⚠️ Modifications non enregistrées — pensez à enregistrer avant de quitter.")
-        else:
-            sb1.caption("✓ Toutes les modifications sont enregistrées.")
-        if sb2.button("💾 Enregistrer", use_container_width=True, type="primary", key=f"save_{jour}"):
-            ok, msg = save_report_from_state()
-            (st.success if ok else st.error)(msg)
+    quart["description"] = st.text_input("📝 Note du quart", quart["description"],
+                                         placeholder="Commentaire sur le quart...",
+                                         key=f"note_{jour}_{quart_name}", on_change=_mark_dirty)
+
+    st.divider()
+    # Validation douce : on signale ce qui manque sans bloquer l'enregistrement
+    # (0/négatif = température remplie ; seul None compte comme « non remplie »).
+    missing = []
+    if quart["temp_am"] is None and quart["temp_pm"] is None:
+        missing.append("une température (AM ou PM)")
+    if not quart.get("personnel"):
+        missing.append("du personnel")
+    sb1, sb2 = st.columns([3, 1], vertical_alignment="center")
+    if missing:
+        sb1.info("Pour continuer, pensez à ajouter : " + ", ".join(missing) + ".")
+    elif st.session_state.get("dirty"):
+        sb1.warning("⚠️ Modifications non enregistrées — pensez à enregistrer avant de quitter.")
+    else:
+        sb1.caption("✓ Toutes les modifications sont enregistrées.")
+    if sb2.button("💾 Enregistrer", use_container_width=True, type="primary", key=f"save_{jour}"):
+        ok, msg = save_report_from_state()
+        (st.success if ok else st.error)(msg)
 
 def view_export():
     st.subheader("📥 Export Excel")
