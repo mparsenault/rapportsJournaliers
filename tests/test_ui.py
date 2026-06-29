@@ -383,6 +383,7 @@ def test_resource_selector_shows_selected_card(monkeypatch):
     [b for b in at.button if b.key == "pick_Lundi_Jour_Bob"][0].click().run()    # sélectionne Bob
     assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
     assert at.session_state["sel_set_Lundi_Jour"] == ["Bob"]
+    assert not any(getattr(m, "key", None) == "acts_Lundi_Jour_Alice" for m in at.multiselect)
     assert not at.exception
 
 
@@ -740,7 +741,7 @@ def test_groupe_apparait_quand_2_selectionnes(monkeypatch):
 def test_un_seul_selectionne_montre_fiche_individuelle(monkeypatch):
     at, jour, qn = _enter_day_with_staff(monkeypatch, ["Alice", "Bob"])
     _rail_click(at, jour, qn, "Alice")
-    # Fiche individuelle : pas de bouton "Appliquer à", présence des pills Équipement.
+    # Fiche individuelle : pas de bouton « Appliquer à », présence du multiselect Activités.
     assert not [b for b in at.button if "Appliquer à" in (b.label or "")]
     assert [m for m in at.multiselect if m.label == "Activités"]
 
@@ -771,4 +772,25 @@ def test_groupe_applique_heures_et_vide_selection(monkeypatch):
     # la sélection est vidée -> retour à l'invite (plus de bouton "Appliquer à")
     assert at.session_state[f"sel_set_{jour}_{qn}"] == []
     assert not [b for b in at.button if "Appliquer à" in (b.label or "")]
+
+
+def test_groupe_repart_vierge_apres_deselection(monkeypatch):
+    at, jour, qn = _enter_day_with_staff(monkeypatch, ["Alice", "Bob", "Carol"])
+    _rail_click(at, jour, qn, "Alice")
+    _rail_click(at, jour, qn, "Bob")
+    # saisir des heures de groupe sans appliquer
+    ms = [m for m in at.multiselect if m.label == "Activités"][0]
+    ms.set_value(["Excavation"]).run()
+    tr = [n for n in at.number_input if n.label == "TR"][0]
+    tr.set_value(5.0).run()
+    # désélectionner Bob -> 1 sélectionné (fiche individuelle), pas d'application
+    _rail_click(at, jour, qn, "Bob")
+    # re-sélectionner Carol -> 2 sélectionnés -> fiche de groupe doit être vierge
+    _rail_click(at, jour, qn, "Carol")
+    assert not at.exception
+    ms2 = [m for m in at.multiselect if m.label == "Activités"][0]
+    assert ms2.value == []
+    # rien n'a été écrit dans le modèle (aucune application)
+    quart = at.session_state["jours"][jour]["quarts"][qn]
+    assert quart["heures"] == {}
 

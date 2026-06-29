@@ -1522,6 +1522,13 @@ def view_day_entry():
                             st.rerun()
             with col_pane:
                 selection = [n for n in st.session_state.get(sel_set_key, []) if n in labels]
+                if len(selection) < 2:
+                    # Pas de fiche de groupe ce run : on purge ses widgets pour
+                    # qu'une future sélection 2+ reparte vierge (clés modifiables
+                    # car non encore instanciées dans ce run).
+                    _purge_resource_hour_keys(jour, quart_name, ["__groupe__"])
+                    st.session_state.pop(f"grp_acts_{jour}_{quart_name}", None)
+                    st.session_state.pop(f"clear_grp_{jour}_{quart_name}", None)
                 if len(selection) == 0:
                     st.info("Sélectionnez une ou plusieurs ressources dans la liste pour saisir les heures.")
                 elif len(selection) == 1:
