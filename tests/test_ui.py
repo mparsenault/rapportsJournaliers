@@ -670,3 +670,25 @@ def test_clear_quart_widget_state_clears_plage_keys():
         assert prefix in source, f"Le préfixe '{prefix}' manque dans _clear_quart_widget_state"
 
 
+def test_appliquer_heures_a_autre_travailleur(monkeypatch):
+    at = _run_with_project(monkeypatch)
+    # Naviguer vers la saisie du lundi
+    [b for b in at.button if "Lundi" in (b.label or "")][0].click().run()
+    jour = at.session_state["active_day"]
+    quart_name = list(at.session_state["jours"][jour]["quarts"].keys())[0]
+    quart = at.session_state["jours"][jour]["quarts"][quart_name]
+    quart["personnel"] = ["Alice", "Bob"]
+    quart["heures"] = {"Alice": {"Excavation": {"mode": "direct", "ranges": [],
+                                               "TR": 4.0, "TS": 0.0}}}
+    at.session_state[f"resource_sel_{jour}_{quart_name}"] = "Alice"
+    at.run()
+    # cocher Bob comme destinataire
+    ms = [m for m in at.multiselect if m.label == "Appliquer aussi à…"][0]
+    ms.set_value(["Bob"]).run()
+    # cliquer le bouton d'application
+    btn = [b for b in at.button if "Appliquer à" in b.label][0]
+    btn.click().run()
+    quart = at.session_state["jours"][jour]["quarts"][quart_name]
+    assert quart["heures"]["Bob"]["Excavation"]["TR"] == 4.0
+
+

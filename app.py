@@ -1221,6 +1221,19 @@ def _render_activity_hours(jour, quart_name, name, act, raw):
         return {"mode": "direct", "ranges": [], "TR": float(tr), "TS": float(ts)}
 
 
+def _purge_resource_hour_keys(jour, quart_name, names):
+    """Supprime de session_state les clés des widgets d'heures des ressources
+    `names` (pour le jour/quart courant) afin qu'elles se réamorcent depuis le
+    modèle au prochain rendu. Couvre activités, modes, TR/TS et plages."""
+    prefixes = ("acts_", "mode_", "tr_", "ts_", "ranges_", "rangeseq_",
+                "rg_deb_", "rg_fin_", "rg_knd_", "rg_del_", "rg_add_")
+    for nm in names:
+        seg = f"{jour}_{quart_name}_{nm}"
+        for k in list(st.session_state.keys()):
+            if seg in k and any(k.startswith(p) for p in prefixes):
+                del st.session_state[k]
+
+
 def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
     """Carte de saisie d'une ressource : activités (TR/TS), équipement (employé), prime, commentaire."""
     # --- Activités de la ressource (choisies parmi toutes les activités du projet) ---
@@ -1467,6 +1480,29 @@ def view_day_entry():
                 icon = "👷" if typ == "P" else "🚜"
                 st.markdown(f"##### {icon} {name} — {_resource_total(quart, name):.1f} h")
                 _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
+
+                # --- Appliquer les activités/heures de cette fiche à d'autres ---
+                source_heures = quart["heures"].get(name) or {}
+                dest_options = [n for n, t in full_roster if t == "P" and n != name]
+                if dest_options:
+                    with st.container(border=True):
+                        st.caption("👥 Copier les activités et heures de cette fiche vers d'autres travailleurs")
+                        bulk_key = f"bulk_apply_{jour}_{quart_name}_{name}"
+                        dests = st.multiselect("Appliquer aussi à…", dest_options,
+                                               key=bulk_key,
+                                               placeholder="🔍 Travailleurs destinataires…")
+                        disabled = (not dests) or (not source_heures)
+                        if not source_heures:
+                            st.caption("Saisissez d'abord des heures pour les copier.")
+                        if st.button(f"Appliquer à {len(dests)} travailleur(s)",
+                                     key=f"bulk_btn_{jour}_{quart_name}_{name}",
+                                     disabled=disabled, use_container_width=True):
+                            changed = _apply_hours_to_resources(quart, name, dests)
+                            _purge_resource_hour_keys(jour, quart_name, changed)
+                            st.session_state[bulk_key] = []
+                            _mark_dirty()
+                            st.success("Copié vers : " + ", ".join(changed))
+                            st.rerun()
 
     quart["description"] = st.text_input("📝 Note du quart", quart["description"],
                                          placeholder="Commentaire sur le quart...",
