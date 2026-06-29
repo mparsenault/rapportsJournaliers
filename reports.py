@@ -110,6 +110,17 @@ _DDL_STATEMENTS = [
         primary key (quart_id, name)
     )
     """,
+    """
+    create table if not exists report_hour_ranges (
+        quart_id       integer references report_quarts(id) on delete cascade,
+        resource_name  text not null,
+        activity_label text not null,
+        seq            integer not null,
+        start_min      integer not null,
+        end_min        integer not null,
+        kind           text not null
+    )
+    """,
     "create index if not exists idx_report_quarts_day on report_quarts(day_id)",
     # Migration : 1 quart « Jour » par jour existant (no-op si déjà fait)
     """
@@ -162,6 +173,25 @@ _DDL_STATEMENTS = [
       and not exists (select 1 from report_quart_resources x where x.quart_id = q.id and x.name = r.name)
     """,
 ]
+
+
+def _hhmm_to_min(s):
+    """'HH:MM' -> minutes depuis minuit ; None si invalide. (Local à reports
+    pour éviter une dépendance circulaire avec app.py.)"""
+    try:
+        h, m = str(s).split(":")
+        h, m = int(h), int(m)
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return h * 60 + m
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def _min_to_hhmm(mins):
+    """minutes depuis minuit -> 'HH:MM' (borné 00:00..23:59)."""
+    mins = max(0, min(int(mins), 23 * 60 + 59))
+    return f"{mins // 60:02d}:{mins % 60:02d}"
 
 
 def _connection():
@@ -287,6 +317,18 @@ def save_report(projet, config, jours, jours_order):
                                        "values (:q, :rn, :al, :h, :hts)"),
                                   {"q": quart_id, "rn": resource_name, "al": activity_label,
                                    "h": tr, "hts": ts})
+                        for seq, rg in enumerate((pair or {}).get("ranges") or []):
+                            sm = _hhmm_to_min((rg or {}).get("debut"))
+                            em = _hhmm_to_min((rg or {}).get("fin"))
+                            if sm is None or em is None:
+                                continue
+                            s.execute(text(
+                                "insert into report_hour_ranges "
+                                "(quart_id, resource_name, activity_label, seq, start_min, end_min, kind) "
+                                "values (:q, :rn, :al, :sq, :sm, :em, :k)"),
+                                {"q": quart_id, "rn": resource_name, "al": activity_label,
+                                 "sq": seq, "sm": sm, "em": em,
+                                 "k": "TS" if (rg or {}).get("type") == "TS" else "TR"})
                 prime = quart.get("prime") or {}
                 commentaire = quart.get("commentaire_ligne") or {}
                 equip_hours = quart.get("equip_hours") or {}
@@ -355,6 +397,18 @@ def load_report(id_project, week_start):
                 for h in hrs:
                     heures.setdefault(h["resource_name"], {})[h["activity_label"]] = {
                         "TR": float(h["hours"]), "TS": float(h["hours_ts"] or 0)}
+                rng = s.execute(
+                    text("select resource_name, activity_label, seq, start_min, end_min, kind "
+                         "from report_hour_ranges where quart_id = :q order by seq"),
+                    {"q": q["id"]}).mappings().all()
+                for r in rng:
+                    entry = heures.setdefault(r["resource_name"], {}).setdefault(
+                        r["activity_label"], {"TR": 0.0, "TS": 0.0})
+                    entry.setdefault("ranges", []).append({
+                        "debut": _min_to_hhmm(r["start_min"]),
+                        "fin": _min_to_hhmm(r["end_min"]),
+                        "type": r["kind"]})
+                    entry["mode"] = "plage"
                 lines = s.execute(
                     text("select resource_name, prime, commentaire, equip_hours, equip_codes "
                          "from report_lines where quart_id = :q"),

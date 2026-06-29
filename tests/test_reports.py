@@ -40,3 +40,17 @@ def test_ddl_has_tr_ts_and_equip_migrations():
     assert "report_hours add column if not exists hours_ts" in ddl
     assert "report_lines add column if not exists equip_hours" in ddl
     assert "report_lines add column if not exists equip_codes" in ddl
+
+
+def test_ddl_has_hour_ranges_table():
+    ddl = " ".join(reports._DDL_STATEMENTS)
+    assert "create table if not exists report_hour_ranges" in ddl
+    assert "quart_id" in ddl and "start_min" in ddl and "end_min" in ddl and "kind" in ddl
+
+
+def test_reports_hhmm_converters():
+    assert reports._hhmm_to_min("10:00") == 600
+    assert reports._hhmm_to_min("10:15") == 615
+    assert reports._hhmm_to_min("bidon") is None
+    assert reports._min_to_hhmm(600) == "10:00"
+    assert reports._min_to_hhmm(615) == "10:15"
