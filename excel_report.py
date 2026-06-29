@@ -97,10 +97,14 @@ def _banner(ws, row, text):
     ws.row_dimensions[row].height = 20
 
 
-def _quart_info(qname, quart):
+def _quart_info(qname, quart, exported_by=""):
     parts = [f"Quart {qname}"]
-    if quart.get("responsable"):
-        parts.append(f"Resp. : {quart['responsable']}")
+    # Le responsable est verrouillé sur la personne connectée ; il n'est estampillé
+    # dans le quart qu'à l'enregistrement. On retombe sur l'exportateur (même
+    # personne) pour qu'il apparaisse même si le rapport n'a pas été resauvegardé.
+    resp = quart.get("responsable") or exported_by
+    if resp:
+        parts.append(f"Resp. : {resp}")
     tam, tpm = quart.get("temp_am"), quart.get("temp_pm")
     if tam is not None or tpm is not None:
         a = tam if tam is not None else "—"
@@ -137,7 +141,7 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
         quart = day["quarts"][qname]
         if app._quart_total(quart) <= 0:
             continue
-        _banner(ws, row, _quart_info(qname, quart))
+        _banner(ws, row, _quart_info(qname, quart, exported_by))
         row += 1
         if quart.get("description"):
             ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)

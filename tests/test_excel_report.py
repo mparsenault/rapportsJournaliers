@@ -64,6 +64,19 @@ def test_build_day_workbook_groupe_par_employe():
     assert any(v.strip() == "Total" for v in col_a)            # ligne Total
 
 
+def test_build_day_workbook_responsable_repli_sur_exportateur():
+    # Quart sans responsable estampillé : le nom de l'exportateur (personne
+    # connectée) doit apparaître dans la bande du quart.
+    q = app._empty_quart()
+    q["personnel"] = ["Bob"]
+    q["heures"] = {"Bob": {"Excavation": {"TR": 8.0, "TS": 0.0}}}
+    assert q["responsable"] == ""
+    day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", day, "Marie-Pier Arsenault")
+    txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])
+    assert "Resp. : Marie-Pier Arsenault" in txt
+
+
 def test_build_day_workbook_plages_horaires_par_activite():
     # Une activité en mode « plage » affiche ses créneaux début–fin et leur type.
     q = app._empty_quart()
