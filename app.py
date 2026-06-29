@@ -402,6 +402,43 @@ def _norm_entry(entry):
         return {"mode": mode, "ranges": ranges, "TR": pair["TR"], "TS": pair["TS"]}
     return {"mode": "direct", "ranges": [], "TR": _to_hours(entry), "TS": 0.0}
 
+
+def _copy_entry(raw):
+    """Copie normalisée et indépendante d'une entrée d'heures."""
+    e = _norm_entry(raw)
+    return {
+        "mode": e["mode"],
+        "ranges": [dict(r) for r in e["ranges"]],
+        "TR": e["TR"],
+        "TS": e["TS"],
+    }
+
+
+def _apply_hours_to_resources(quart, source_name, dest_names):
+    """Copie (fusion) les heures de `source_name` vers chaque destinataire.
+
+    Pour chaque activité de la source, écrit une copie indépendante dans
+    quart["heures"][dest][activité]. Les activités préexistantes du
+    destinataire absentes de la source sont conservées ; les activités
+    communes sont écrasées par la valeur source. Renvoie la liste des
+    destinataires effectivement modifiés.
+    """
+    source = quart["heures"].get(source_name) or {}
+    if not source:
+        return []
+    changed = []
+    seen = set()
+    for dest in dest_names:
+        if dest == source_name or dest in seen:
+            continue
+        seen.add(dest)
+        target = quart["heures"].setdefault(dest, {})
+        for act, raw in source.items():
+            target[act] = _copy_entry(raw)
+        changed.append(dest)
+    return changed
+
+
 def _pair_total(pair):
     """Total d'un couple {'TR','TS'} -> float (0 si vide/invalide)."""
     p = _norm_pair(pair)
