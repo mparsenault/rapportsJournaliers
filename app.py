@@ -202,9 +202,15 @@ def load_report_into_state():
 def save_report_from_state():
     """Persiste le state courant vers Neon. Renvoie (ok, message)."""
     try:
+        user = current_user()
+        # Responsable verrouillé sur l'utilisateur connecté pour tous les quarts.
+        for day in st.session_state.jours.values():
+            for quart in day.get("quarts", {}).values():
+                quart["responsable"] = user["name"]
         reports.save_report(
             st.session_state.projet, {},
             st.session_state.jours, JOURS,
+            saved_by=user["email"],
         )
         st.session_state.dirty = False
         return True, "Rapport enregistré ✓"
@@ -1270,6 +1276,7 @@ def view_day_entry():
     _render_quart_selector(jour, day, prev_day)
     quart_name = _current_quart_name(jour)
     quart = day["quarts"][quart_name]
+    st.caption(f"👤 Responsable : {current_user()['name'] or '—'}")
 
     with st.container(border=True, key="meteo_card"):
         header_cols = st.columns([3, 1], vertical_alignment="center")
