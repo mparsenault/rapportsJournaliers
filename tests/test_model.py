@@ -172,3 +172,45 @@ def test_codes_to_condition_picks_most_significant_daytime():
     assert app._codes_to_condition([0] * 24) == "Ensoleillé"
     # données absentes -> repli
     assert app._codes_to_condition([]) == "Ensoleillé"
+
+
+def test_hhmm_min_roundtrip():
+    assert app._hhmm_to_min("10:00") == 600
+    assert app._hhmm_to_min("10:15") == 615
+    assert app._hhmm_to_min("00:00") == 0
+    assert app._hhmm_to_min("bidon") is None
+    assert app._hhmm_to_min("99:99") is None
+    assert app._min_to_hhmm(600) == "10:00"
+    assert app._min_to_hhmm(615) == "10:15"
+    assert app._min_to_hhmm(-5) == "00:00"
+
+
+def test_range_hours():
+    assert app._range_hours("10:00", "12:00") == 2.0
+    assert app._range_hours("13:00", "14:30") == 1.5
+    assert app._range_hours("10:00", "10:15") == 0.25
+    assert app._range_hours("12:00", "10:00") == 0.0   # fin <= début
+    assert app._range_hours("10:00", "10:00") == 0.0
+    assert app._range_hours("x", "12:00") == 0.0
+
+
+def test_ranges_to_pair():
+    ranges = [
+        {"debut": "10:00", "fin": "12:00", "type": "TR"},
+        {"debut": "13:00", "fin": "14:30", "type": "TR"},
+        {"debut": "16:00", "fin": "17:00", "type": "TS"},
+    ]
+    assert app._ranges_to_pair(ranges) == {"TR": 3.5, "TS": 1.0}
+    assert app._ranges_to_pair([]) == {"TR": 0.0, "TS": 0.0}
+
+
+def test_norm_entry_backward_compat():
+    # ancien format dict
+    assert app._norm_entry({"TR": 5.0, "TS": 1.0}) == {
+        "mode": "direct", "ranges": [], "TR": 5.0, "TS": 1.0}
+    # scalaire hérité
+    assert app._norm_entry(7.5) == {"mode": "direct", "ranges": [], "TR": 7.5, "TS": 0.0}
+    # nouveau format plage -> TR/TS dérivés des plages
+    e = app._norm_entry({"mode": "plage",
+                         "ranges": [{"debut": "10:00", "fin": "12:00", "type": "TR"}]})
+    assert e["mode"] == "plage" and e["TR"] == 2.0 and e["TS"] == 0.0

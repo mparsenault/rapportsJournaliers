@@ -333,6 +333,60 @@ def _norm_pair(pair):
         return {"TR": _to_hours(pair.get("TR")), "TS": _to_hours(pair.get("TS"))}
     return {"TR": _to_hours(pair), "TS": 0.0}
 
+def _hhmm_to_min(s):
+    """'HH:MM' -> minutes depuis minuit ; None si invalide."""
+    try:
+        h, m = str(s).split(":")
+        h, m = int(h), int(m)
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return h * 60 + m
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def _min_to_hhmm(mins):
+    """minutes depuis minuit -> 'HH:MM' (borné 00:00..23:59)."""
+    mins = max(0, min(int(mins), 23 * 60 + 59))
+    return f"{mins // 60:02d}:{mins % 60:02d}"
+
+
+def _range_hours(debut, fin):
+    """Durée en heures décimales entre deux 'HH:MM' ; 0.0 si fin<=début ou invalide."""
+    a, b = _hhmm_to_min(debut), _hhmm_to_min(fin)
+    if a is None or b is None or b <= a:
+        return 0.0
+    return (b - a) / 60.0
+
+
+def _ranges_to_pair(ranges):
+    """{'TR': Σ durées TR, 'TS': Σ durées TS} pour une liste de plages."""
+    tr = ts = 0.0
+    for r in ranges or []:
+        d = _range_hours((r or {}).get("debut"), (r or {}).get("fin"))
+        if (r or {}).get("type") == "TS":
+            ts += d
+        else:
+            tr += d
+    return {"TR": tr, "TS": ts}
+
+
+def _norm_entry(entry):
+    """Normalise une entrée d'heures d'activité -> {'mode','ranges','TR','TS'}.
+
+    Tolère l'ancien format ({'TR','TS'} ou scalaire hérité) -> mode 'direct'.
+    En mode 'plage', TR/TS sont dérivés des plages.
+    """
+    if isinstance(entry, dict):
+        ranges = list(entry.get("ranges") or [])
+        mode = entry.get("mode") or ("plage" if ranges else "direct")
+        if mode == "plage":
+            pair = _ranges_to_pair(ranges)
+        else:
+            pair = {"TR": _to_hours(entry.get("TR")), "TS": _to_hours(entry.get("TS"))}
+        return {"mode": mode, "ranges": ranges, "TR": pair["TR"], "TS": pair["TS"]}
+    return {"mode": "direct", "ranges": [], "TR": _to_hours(entry), "TS": 0.0}
+
 def _pair_total(pair):
     """Total d'un couple {'TR','TS'} -> float (0 si vide/invalide)."""
     p = _norm_pair(pair)
