@@ -67,18 +67,18 @@ def _write_row(ws, row, values, *, bold=False, fill=None, fmt=None):
             cell.number_format = fmt
 
 
-# Colonnes fixes (regroupement par ressource : activités en sous-lignes, pas en colonnes).
-_PERS_COLS = ["Nom / Activité", "TR", "TS", "Hrs Éq.", "Code Éq.", "Prime", "Commentaire"]
-_EQUIP_COLS = ["Véhicule / Activité", "TR", "TS", "Prime", "Commentaire"]
+# Colonnes fixes (regroupement par ressource : activités + plages en sous-lignes).
+_PERS_COLS = ["Nom / Activité", "Plage", "TR", "TS", "Hrs Éq.", "Code Éq.", "Prime", "Commentaire"]
+_EQUIP_COLS = ["Véhicule / Activité", "Plage", "TR", "TS", "Prime", "Commentaire"]
 _NCOL = len(_PERS_COLS)  # largeur de la feuille (le tableau personnel est le plus large)
 
 
 def _col_width(name):
     """Largeur selon le rôle de la colonne."""
     return {
-        "Nom / Activité": 40, "Véhicule / Activité": 40,
+        "Nom / Activité": 40, "Véhicule / Activité": 40, "Plage": 14,
         "TR": 6.5, "TS": 6.5, "Hrs Éq.": 9, "Code Éq.": 13, "Prime": 9,
-        "Commentaire": 34,
+        "Commentaire": 30,
     }.get(name, 12)
 
 
@@ -162,9 +162,13 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
 
 
 def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
-    """Tableau groupé par ressource : ligne nom, sous-lignes activités (TR/TS),
-    ligne Total (totaux + champs par ressource). Renvoie la prochaine ligne libre."""
+    """Tableau groupé par ressource : ligne nom, puis par activité ses plages
+    horaires (début–fin, type TR/TS) — ou une ligne unique en mode direct —, et
+    une ligne Total (totaux + champs par ressource). Renvoie la prochaine ligne libre.
+
+    Colonnes : [label, Plage, TR, TS, (Hrs Éq., Code Éq.,) Prime, Commentaire]."""
     ncol = len(cols)
+    extra = ncol - 4  # colonnes après [label, Plage, TR, TS]
     _write_row(ws, row, cols, bold=True, fill=_FILL_HEAD)
     row += 1
 
@@ -186,21 +190,40 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
 
         tr_tot = ts_tot = 0.0
         for label in sorted(acts):
-            pair = acts[label] or {}
-            tr = float(pair.get("TR") or 0)
-            ts = float(pair.get("TS") or 0)
-            tr_tot += tr
-            ts_tot += ts
-            _write_row(ws, row, ["    " + label, tr, ts] + [None] * (ncol - 3),
-                       fmt=_HOURS_FMT)
-            row += 1
+            norm = app._norm_entry(acts[label])
+            ranges = norm.get("ranges") or []
+            if ranges:
+                # Activité (sous-ligne) puis une ligne par plage.
+                _write_row(ws, row, ["  " + label] + [None] * (ncol - 1))
+                row += 1
+                for r in ranges:
+                    deb = (r or {}).get("debut")
+                    fin = (r or {}).get("fin")
+                    typ = "TS" if (r or {}).get("type") == "TS" else "TR"
+                    dur = app._range_hours(deb, fin)
+                    tr = dur if typ == "TR" else 0.0
+                    ts = dur if typ == "TS" else 0.0
+                    tr_tot += tr
+                    ts_tot += ts
+                    _write_row(ws, row, [f"      {deb} – {fin}", typ, tr, ts]
+                               + [None] * extra, fmt=_HOURS_FMT)
+                    row += 1
+            else:
+                # Mode direct : une seule ligne avec les heures.
+                tr = float(norm.get("TR") or 0)
+                ts = float(norm.get("TS") or 0)
+                tr_tot += tr
+                ts_tot += ts
+                _write_row(ws, row, ["  " + label, "directe", tr, ts]
+                           + [None] * extra, fmt=_HOURS_FMT)
+                row += 1
 
         if with_equip:
             codes = ", ".join(eqc.get(name) or []) or None
-            total = ["Total", tr_tot, ts_tot, eqh.get(name), codes,
+            total = ["Total", None, tr_tot, ts_tot, eqh.get(name), codes,
                      prime.get(name), comm.get(name)]
         else:
-            total = ["Total", tr_tot, ts_tot, prime.get(name), comm.get(name)]
+            total = ["Total", None, tr_tot, ts_tot, prime.get(name), comm.get(name)]
         _write_row(ws, row, total, bold=True, fmt=_HOURS_FMT, fill=_FILL_BAND)
         row += 1
     return row

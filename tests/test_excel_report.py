@@ -64,6 +64,25 @@ def test_build_day_workbook_groupe_par_employe():
     assert any(v.strip() == "Total" for v in col_a)            # ligne Total
 
 
+def test_build_day_workbook_plages_horaires_par_activite():
+    # Une activité en mode « plage » affiche ses créneaux début–fin et leur type.
+    q = app._empty_quart()
+    q["personnel"] = ["Bob"]
+    q["heures"] = {"Bob": {"Excavation": {
+        "mode": "plage",
+        "ranges": [{"debut": "07:00", "fin": "12:00", "type": "TR"},
+                   {"debut": "13:00", "fin": "14:00", "type": "TS"}],
+        "TR": 5.0, "TS": 1.0}}}
+    day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", day, "")
+    ws = openpyxl.load_workbook(buf)["Lundi"]
+    col_a = [str(c.value) for c in ws["A"] if c.value not in (None, "")]
+    assert any("07:00 – 12:00" in v for v in col_a)         # plage 1
+    assert any("13:00 – 14:00" in v for v in col_a)         # plage 2
+    vals = [c.value for row in ws.iter_rows() for c in row]
+    assert 5.0 in vals and 1.0 in vals                       # heures TR / TS dérivées
+
+
 def test_build_day_workbook_heures_et_prime_presentes():
     buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
     wb = openpyxl.load_workbook(buf)
