@@ -567,7 +567,27 @@ def get_css():
     .st-key-hdr_retour button:hover {{
         background: rgba(255,255,255,0.28) !important; border-color: #fff !important; color: #fff !important;
     }}
-    
+    /* Coin droit : identité connectée + déconnexion, empilées et alignées à
+       droite, en réservant la place du logo (qui est positionné en absolu). */
+    .st-key-ondel_header [data-testid="stColumn"]:last-child [data-testid="stVerticalBlock"] {{
+        align-items: flex-end !important; gap: 0.2rem !important; padding-right: 4.5rem !important;
+    }}
+    .st-key-ondel_header [data-testid="stColumn"]:last-child [data-testid="stElementContainer"] {{
+        width: auto !important;
+    }}
+    .hdr-user {{ color: #fff; font-weight: 600; font-size: 0.88rem;
+        white-space: nowrap; line-height: 1.2; margin: 0 !important; }}
+    .st-key-hdr_logout button {{
+        background: rgba(255,255,255,0.15) !important; color: #fff !important;
+        border: 1px solid rgba(255,255,255,0.45) !important;
+        padding: 0.1rem 0.7rem !important; font-size: 0.78rem !important;
+        min-height: 0 !important; height: auto !important; border-radius: 6px !important;
+        line-height: 1.35 !important; white-space: nowrap;
+    }}
+    .st-key-hdr_logout button:hover {{
+        background: rgba(255,255,255,0.28) !important; border-color: #fff !important; color: #fff !important;
+    }}
+
     /* Buttons */
     .stButton > button {{ 
         border-radius: 8px; font-weight: 600; 
@@ -1497,7 +1517,7 @@ def main():
     
     uri = _logo_data_uri()
     with st.container(key="ondel_header"):
-        b_l, b_c, b_r = st.columns([1, 4, 1], vertical_alignment="center")
+        b_l, b_c, b_r = st.columns([1, 3, 2], vertical_alignment="center")
         with b_l:
             if st.session_state.view != "dashboard" and st.button("⬅️ Retour", key="hdr_retour"):
                 st.session_state.view = "dashboard"; st.rerun()
@@ -1507,8 +1527,10 @@ def main():
             st.markdown(
                 f'<div class="logo-wrap"><span class="logo-chip"><img src="{uri}"></span></div>',
                 unsafe_allow_html=True)
-            st.caption(f"👤 {user['name'] or user['email']}")
-            if st.button("Se déconnecter", key="hdr_logout", use_container_width=True):
+            st.markdown(
+                f'<div class="hdr-user">👤 {user["name"] or user["email"] or "—"}</div>',
+                unsafe_allow_html=True)
+            if st.button("Se déconnecter", key="hdr_logout"):
                 st.logout()
     
     if st.session_state.view == "dashboard": view_dashboard()
