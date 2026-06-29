@@ -1230,7 +1230,7 @@ def _purge_resource_hour_keys(jour, quart_name, names):
     for nm in names:
         seg = f"{jour}_{quart_name}_{nm}"
         for k in list(st.session_state.keys()):
-            if seg in k and any(k.startswith(p) for p in prefixes):
+            if any(k == p + seg or k.startswith(p + seg + "_") for p in prefixes):
                 del st.session_state[k]
 
 
