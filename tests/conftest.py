@@ -18,6 +18,11 @@ _MOCK_USER_INFO = {
 }
 
 
+# NOTE: This fixture patches streamlit.user_info._get_user_info (private API).
+# Validated against Streamlit 1.50.0 — revisit if the test suite breaks after
+# a Streamlit upgrade. This is an autouse fixture that forces is_logged_in=True
+# for ALL tests. Any future test targeting the logged-out login screen must
+# override this with its own monkeypatch.setattr call.
 @pytest.fixture(autouse=True)
 def simulate_logged_in(monkeypatch):
     """Simule un utilisateur connecté pour tous les tests utilisant AppTest."""
