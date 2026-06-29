@@ -16,6 +16,7 @@ import pandas as pd
 import streamlit as st
 import data_source
 import reports
+import mailer
 
 try:
     from streamlit_js_eval import get_geolocation
@@ -194,6 +195,16 @@ def save_report_from_state():
         return True, "Rapport enregistré ✓"
     except Exception as exc:  # noqa: BLE001
         return False, f"Échec de l'enregistrement : {exc}"
+
+
+def envoyer_journee_par_courriel(projet, jour_name, day, destinataires, exported_by):
+    """Construit le .xlsx de la journée et l'envoie. Renvoie (ok, message)."""
+    if _day_total(day) <= 0:
+        return False, "Journée vide, rien à envoyer."
+    import excel_report
+    subject, html_body, filename, data = excel_report.build_day_email(
+        projet, jour_name, day, exported_by)
+    return mailer.send_mail(destinataires, subject, html_body, filename, data)
 
 
 def _empty_quart():
@@ -1426,7 +1437,7 @@ def view_day_entry():
         missing.append("une température (AM ou PM)")
     if not quart.get("personnel"):
         missing.append("du personnel")
-    sb1, sb2 = st.columns([3, 1], vertical_alignment="center")
+    sb1, sb2, sb3 = st.columns([3, 1, 1], vertical_alignment="center")
     if missing:
         sb1.info("Pour continuer, pensez à ajouter : " + ", ".join(missing) + ".")
     elif st.session_state.get("dirty"):
@@ -1436,6 +1447,22 @@ def view_day_entry():
     if sb2.button("💾 Enregistrer", use_container_width=True, type="primary", key=f"save_{jour}"):
         ok, msg = save_report_from_state()
         (st.success if ok else st.error)(msg)
+    with sb3.popover("📧 Envoyer", use_container_width=True):
+        day = st.session_state.jours[jour]
+        if _day_total(day) <= 0:
+            st.caption("Journée vide, rien à envoyer.")
+        else:
+            default_to = ""
+            try:
+                default_to = st.secrets["graph"]["default_recipients"]
+            except Exception:
+                pass
+            to = st.text_input("Destinataire(s) (séparés par ;)", value=default_to,
+                               key=f"mail_to_{jour}")
+            if st.button("Envoyer le courriel", key=f"send_{jour}", type="primary"):
+                ok, msg = envoyer_journee_par_courriel(
+                    st.session_state.projet, jour, day, to, current_user()["name"])
+                (st.success if ok else st.error)(msg)
 
 def view_export():
     import excel_report
