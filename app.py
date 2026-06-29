@@ -1319,23 +1319,48 @@ def view_day_entry():
         if not full_roster:
             st.info("💡 Commencez par sélectionner le **personnel / équipements** dans la configuration.")
         else:
-            # Libellés = noms bruts ; l'icône 👷/🚜 est portée par l'en-tête de la
-            # fiche. (st.radio en ligne plutôt que st.pills : la sélection simple de
-            # st.pills n'est pas représentable sous AppTest — les tests ne pourraient
-            # plus rendre l'étape Saisie.)
+            # Sélecteur maître-détail : rail de gauche (recherche + liste défilante
+            # de boutons) + fiche de saisie à droite. st.button est représentable
+            # sous AppTest (contrairement à st.pills), donc testable. L'icône 👷/🚜
+            # est portée par chaque ligne du rail et par l'en-tête de la fiche.
             labels = [n for n, _t in full_roster]
             by_label = {n: (n, t) for n, t in full_roster}
             sel_key = f"resource_sel_{jour}_{quart_name}"
             if st.session_state.get(sel_key) not in labels:
                 st.session_state[sel_key] = labels[0]
-            sel_label = st.radio("Employé / équipement", labels, key=sel_key,
-                                 horizontal=True, label_visibility="collapsed")
-            if sel_label not in by_label:
-                sel_label = labels[0]
-            name, typ = by_label[sel_label]
-            icon = "👷" if typ == "P" else "🚜"
-            st.markdown(f"##### {icon} {name} — {_resource_total(quart, name):.1f} h")
-            _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
+
+            col_rail, col_pane = st.columns([1, 2], gap="medium")
+            with col_rail:
+                q = st.text_input("Rechercher une ressource", key=f"res_search_{jour}_{quart_name}",
+                                  placeholder="🔍 Rechercher une ressource…",
+                                  label_visibility="collapsed")
+                done = sum(1 for n in labels if _resource_total(quart, n) > 0)
+                # La recherche filtre l'affichage du rail uniquement ; elle ne touche
+                # jamais sel_key (la fiche en cours reste visible même si la ressource
+                # sélectionnée est filtrée hors de la liste).
+                filt = [n for n in labels if q.casefold() in n.casefold()] if q else labels
+                st.caption(f"{len(filt)} résultat(s) · {done} sur {len(labels)} saisies")
+                with st.container(height=300):
+                    if not filt:
+                        st.caption("Aucune ressource ne correspond.")
+                    for n in filt:
+                        _n, t = by_label[n]
+                        tot = _resource_total(quart, n)
+                        ic = "👷" if t == "P" else "🚜"
+                        status = "🟢" if tot > 0 else "⚪"
+                        is_sel = (n == st.session_state[sel_key])
+                        if st.button(f"{ic} {n} · {status} {tot:.1f} h",
+                                     key=f"pick_{jour}_{quart_name}_{n}",
+                                     use_container_width=True,
+                                     type="primary" if is_sel else "secondary"):
+                            st.session_state[sel_key] = n
+                            st.rerun()
+
+            with col_pane:
+                name, typ = by_label[st.session_state[sel_key]]
+                icon = "👷" if typ == "P" else "🚜"
+                st.markdown(f"##### {icon} {name} — {_resource_total(quart, name):.1f} h")
+                _render_resource_card(jour, quart_name, quart, name, typ, all_activities)
         st.divider()
         quart["description"] = st.text_input("📝 Note du quart", quart["description"],
                                              placeholder="Commentaire sur le quart...",

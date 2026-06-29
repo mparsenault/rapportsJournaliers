@@ -436,6 +436,38 @@ def test_resource_selector_shows_selected_card(monkeypatch):
     assert not at.exception
 
 
+def test_resource_search_filters_rail(monkeypatch):
+    """La recherche filtre les boutons du rail sans changer la sélection."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice", "Bob", "Charlie"))
+    _goto_saisie(at)
+    # Sans filtre : un bouton pick_ par ressource
+    pick_keys = {b.key for b in at.button if b.key and b.key.startswith("pick_Lundi_Jour_")}
+    assert pick_keys == {"pick_Lundi_Jour_Alice", "pick_Lundi_Jour_Bob", "pick_Lundi_Jour_Charlie"}
+    # Filtre "ali" -> seule Alice reste, la sélection par défaut (Alice) est inchangée
+    search = [t for t in at.text_input if t.key == "res_search_Lundi_Jour"][0]
+    search.set_value("ali").run()
+    pick_keys = {b.key for b in at.button if b.key and b.key.startswith("pick_Lundi_Jour_")}
+    assert pick_keys == {"pick_Lundi_Jour_Alice"}
+    assert at.session_state["resource_sel_Lundi_Jour"] == "Alice"
+    assert not at.exception
+
+
+def test_resource_pick_button_selects_and_survives_filter(monkeypatch):
+    """Cliquer un bouton du rail sélectionne la ressource ; un filtre qui l'exclut
+    n'efface pas la fiche affichée."""
+    at = _open_day_for_entry(monkeypatch, personnel=("Alice", "Bob"))
+    _goto_saisie(at)
+    # Cliquer Bob -> sa fiche s'affiche
+    [b for b in at.button if b.key == "pick_Lundi_Jour_Bob"][0].click().run()
+    assert at.session_state["resource_sel_Lundi_Jour"] == "Bob"
+    assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
+    # Filtrer sur "ali" (exclut Bob du rail) -> la fiche de Bob reste affichée
+    [t for t in at.text_input if t.key == "res_search_Lundi_Jour"][0].set_value("ali").run()
+    assert at.session_state["resource_sel_Lundi_Jour"] == "Bob"
+    assert any(m.key == "acts_Lundi_Jour_Bob" for m in at.multiselect)
+    assert not at.exception
+
+
 def test_project_selection_prefills_team(monkeypatch):
     import data_source
     monkeypatch.setattr(data_source, "get_projects", lambda: [(1, "P-100", "Alpha")])
