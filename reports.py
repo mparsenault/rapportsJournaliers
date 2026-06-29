@@ -172,6 +172,8 @@ _DDL_STATEMENTS = [
     where q.quart = 'Jour'
       and not exists (select 1 from report_quart_resources x where x.quart_id = q.id and x.name = r.name)
     """,
+    # Authentification : utilisateur qui a sauvegardé le rapport
+    "alter table reports add column if not exists saved_by text",
 ]
 
 
@@ -215,7 +217,7 @@ def ensure_schema():
 # --------------------------------------------------------------------------
 # Écriture
 # --------------------------------------------------------------------------
-def save_report(projet, config, jours, jours_order):
+def save_report(projet, config, jours, jours_order, saved_by=None):
     """Persiste tout le rapport de la semaine (upsert par projet+semaine).
 
     Stratégie : upsert de l'en-tête, puis suppression/réinsertion complète des
@@ -238,9 +240,9 @@ def save_report(projet, config, jours, jours_order):
                 """
                 insert into reports
                     (id_project, project_no, week_start, responsable, quart,
-                     adresse, lat, lon, updated_at)
+                     adresse, lat, lon, saved_by, updated_at)
                 values
-                    (:idp, :no, :wk, :resp, :quart, :addr, :lat, :lon, now())
+                    (:idp, :no, :wk, :resp, :quart, :addr, :lat, :lon, :saved_by, now())
                 on conflict (id_project, week_start) do update set
                     project_no  = excluded.project_no,
                     responsable = excluded.responsable,
@@ -248,6 +250,7 @@ def save_report(projet, config, jours, jours_order):
                     adresse     = excluded.adresse,
                     lat         = excluded.lat,
                     lon         = excluded.lon,
+                    saved_by    = excluded.saved_by,
                     updated_at  = now()
                 returning id
                 """
@@ -261,6 +264,7 @@ def save_report(projet, config, jours, jours_order):
                 "addr": projet.get("adresse") or None,
                 "lat": projet.get("lat"),
                 "lon": projet.get("lon"),
+                "saved_by": saved_by or None,
             },
         ).scalar()
 

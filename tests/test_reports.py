@@ -54,3 +54,14 @@ def test_reports_hhmm_converters():
     assert reports._hhmm_to_min("bidon") is None
     assert reports._min_to_hhmm(600) == "10:00"
     assert reports._min_to_hhmm(615) == "10:15"
+
+
+def test_ddl_has_saved_by_migration():
+    ddl = " ".join(reports._DDL_STATEMENTS)
+    assert "reports add column if not exists saved_by" in ddl
+
+
+def test_save_report_accepts_saved_by_param():
+    import inspect
+    sig = inspect.signature(reports.save_report)
+    assert "saved_by" in sig.parameters
