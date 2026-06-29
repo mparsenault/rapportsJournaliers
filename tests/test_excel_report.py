@@ -43,6 +43,17 @@ def test_build_day_workbook_une_feuille_et_entete():
     assert "Exporté par Test User" in txt      # estampille
 
 
+def test_build_day_workbook_largeurs_colonnes_ajustees():
+    # Garde-fou : plusieurs colonnes doivent avoir une largeur (pas seulement A),
+    # sinon les libellés d'activité longs sont écrasés.
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
+    ws = openpyxl.load_workbook(buf)["Lundi"]
+    larges = {k: d.width for k, d in ws.column_dimensions.items() if d.width}
+    assert "A" in larges and larges["A"] >= 30          # colonne Nom
+    assert "B" in larges and larges["B"] >= 20          # colonne d'activité
+    assert len(larges) >= 4                              # plusieurs colonnes réglées
+
+
 def test_build_day_workbook_heures_et_prime_presentes():
     buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
     wb = openpyxl.load_workbook(buf)

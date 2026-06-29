@@ -9,6 +9,7 @@ from io import BytesIO
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 import app
 
@@ -66,17 +67,77 @@ def _write_row(ws, row, values, *, bold=False, fill=None, fmt=None):
             cell.number_format = fmt
 
 
+def _table_cols(headers, label_col, with_equip):
+    """Colonnes (clés) du tableau : label + activités présentes + totaux + extras."""
+    act_cols = [k for k in app.HOUR_KEYS if headers.get(k)]
+    cols = [label_col] + act_cols + ["TR", "TS"]
+    if with_equip:
+        cols += ["Hrs Éq.", "Code Éq."]
+    cols += ["Prime", "Commentaire"]
+    return cols, act_cols
+
+
+def _col_width(name):
+    """Largeur de colonne selon son rôle (les clés hX/aX = activités = larges)."""
+    return {
+        "Nom": 34, "Véhicule": 34,
+        "TR": 6.5, "TS": 6.5, "Hrs Éq.": 9, "Code Éq.": 13, "Prime": 9,
+        "Commentaire": 32,
+    }.get(name, 28)  # défaut = colonne d'activité (libellé long)
+
+
+def _apply_widths(ws, cols):
+    for i, name in enumerate(cols, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = _col_width(name)
+
+
+def _banner(ws, row, last_col, text):
+    """Bande d'info (fusionnée A:last_col), fond teal, texte blanc — pas de chevauchement."""
+    ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=last_col)
+    cell = ws.cell(row=row, column=1, value=text)
+    cell.font = _F_HEAD
+    cell.fill = _FILL_HEAD
+    cell.alignment = _LEFT
+    ws.row_dimensions[row].height = 20
+
+
+def _quart_info(qname, leg):
+    parts = [f"Quart {qname}"]
+    if leg.get("responsable"):
+        parts.append(f"Resp. : {leg['responsable']}")
+    tam, tpm = leg.get("temp_am"), leg.get("temp_pm")
+    if tam is not None or tpm is not None:
+        a = tam if tam is not None else "—"
+        p = tpm if tpm is not None else "—"
+        parts.append(f"Temp. AM {a} / PM {p}")
+    if leg.get("conditions"):
+        parts.append(", ".join(leg["conditions"]))
+    return "    ·    ".join(parts)
+
+
 def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     """Écrit le rapport d'une journée dans la feuille `ws`."""
     ws.title = _safe_title(jour_name)
     _add_logo(ws)
-    ws.column_dimensions["A"].width = 28
 
-    ws.merge_cells("B1:H1")
-    t = ws["B1"]
-    t.value = "RAPPORT JOURNALIER — ONDEL"
+    # Quarts remplis + largeurs basées sur le tableau personnel le plus large.
+    filled = [(q, app._legacy_day(day["quarts"][q]))
+              for q in app._day_quart_names(day)
+              if app._quart_total(day["quarts"][q]) > 0]
+    width_cols = ["Nom"]
+    for _, leg in filled:
+        cols, _ = _table_cols(leg["headers"], "Nom", with_equip=True)
+        if len(cols) > len(width_cols):
+            width_cols = cols
+    _apply_widths(ws, width_cols)
+    last_col = max(len(width_cols), 8)
+
+    # Titre (sur toute la largeur du tableau).
+    ws.merge_cells(start_row=1, end_row=1, start_column=2, end_column=last_col)
+    t = ws.cell(row=1, column=2, value="RAPPORT JOURNALIER — ONDEL")
     t.font = _F_TITLE
     t.fill = _FILL_TITLE
+    ws.row_dimensions[1].height = 38
 
     d = day.get("date")
     date_txt = app.fr_date_long(d) if d else ""
@@ -88,22 +149,12 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     ws.cell(row=5, column=2, value=projet.get("adresse") or "")
 
     row = 7
-    for qname in app._day_quart_names(day):
-        quart = day["quarts"][qname]
-        if app._quart_total(quart) <= 0:
-            continue
-        leg = app._legacy_day(quart)
-
-        ws.cell(row=row, column=1, value=f"Quart : {qname}").font = _F_LABEL
-        ws.cell(row=row, column=3,
-                value=f"Resp. : {leg.get('responsable', '')}").font = _F_LABEL
-        ws.cell(row=row, column=5,
-                value=f"Temp. AM : {leg.get('temp_am')}  PM : {leg.get('temp_pm')}")
-        ws.cell(row=row, column=7,
-                value="Conditions : " + ", ".join(leg.get("conditions", [])))
+    for qname, leg in filled:
+        _banner(ws, row, last_col, _quart_info(qname, leg))
         row += 1
         if leg.get("description"):
-            ws.cell(row=row, column=1, value=f"Note : {leg['description']}")
+            ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=last_col)
+            ws.cell(row=row, column=1, value=f"Note : {leg['description']}").alignment = _LEFT
             row += 1
 
         row = _write_table(ws, row, leg["headers"], leg["pers"], with_equip=True)
@@ -123,14 +174,11 @@ def _write_table(ws, row, headers, df, *, with_equip):
     `headers` mappe les clés hX/aX -> libellés d'activité (vides à ignorer).
     `df` est le DataFrame produit par app._legacy_day (build_df)."""
     label_col = df.columns[0]                      # "Nom" ou "Véhicule"
-    act_cols = [k for k in app.HOUR_KEYS if headers.get(k)]
-    cols = [label_col] + act_cols + ["TR", "TS"]
-    if with_equip:
-        cols += ["Hrs Éq.", "Code Éq."]
-    cols += ["Prime", "Commentaire"]
+    cols, act_cols = _table_cols(headers, label_col, with_equip)
 
     titles = [label_col] + [headers[k] for k in act_cols] + cols[1 + len(act_cols):]
     _write_row(ws, row, titles, bold=True, fill=_FILL_HEAD)
+    ws.row_dimensions[row].height = 30          # libellés d'activité longs (wrap)
     row += 1
     for _, rec in df.iterrows():
         values = [rec.get(c) for c in cols]
