@@ -216,60 +216,6 @@ def test_norm_entry_backward_compat():
     assert e["mode"] == "plage" and e["TR"] == 2.0 and e["TS"] == 0.0
 
 
-def test_apply_hours_copies_to_empty_dest():
-    q = app._empty_quart()
-    q["personnel"] = ["Alice", "Bob"]
-    q["heures"] = {"Alice": {"Excavation": {"mode": "direct", "ranges": [],
-                                            "TR": 4.0, "TS": 1.0}}}
-    changed = app._apply_hours_to_resources(q, "Alice", ["Bob"])
-    assert changed == ["Bob"]
-    assert q["heures"]["Bob"]["Excavation"]["TR"] == 4.0
-    assert q["heures"]["Bob"]["Excavation"]["TS"] == 1.0
-    # source intacte
-    assert q["heures"]["Alice"]["Excavation"]["TR"] == 4.0
-
-
-def test_apply_hours_ranges_are_independent():
-    q = app._empty_quart()
-    q["heures"] = {"Alice": {"Excavation": {
-        "mode": "plage",
-        "ranges": [{"debut": "08:00", "fin": "12:00", "type": "TR"}],
-        "TR": 4.0, "TS": 0.0}}}
-    app._apply_hours_to_resources(q, "Alice", ["Bob"])
-    # muter la source ne doit pas toucher le destinataire
-    q["heures"]["Alice"]["Excavation"]["ranges"][0]["fin"] = "16:00"
-    assert q["heures"]["Bob"]["Excavation"]["ranges"][0]["fin"] == "12:00"
-
-
-def test_apply_hours_merges_without_erasing():
-    q = app._empty_quart()
-    q["heures"] = {
-        "Alice": {"Excavation": {"mode": "direct", "ranges": [], "TR": 4.0, "TS": 0.0}},
-        "Bob": {"Coffrage": {"mode": "direct", "ranges": [], "TR": 2.0, "TS": 0.0},
-                "Excavation": {"mode": "direct", "ranges": [], "TR": 1.0, "TS": 0.0}},
-    }
-    app._apply_hours_to_resources(q, "Alice", ["Bob"])
-    # activité propre à Bob conservée
-    assert q["heures"]["Bob"]["Coffrage"]["TR"] == 2.0
-    # activité commune écrasée par la source
-    assert q["heures"]["Bob"]["Excavation"]["TR"] == 4.0
-
-
-def test_apply_hours_empty_source_noop():
-    q = app._empty_quart()
-    q["heures"] = {"Bob": {"Coffrage": {"mode": "direct", "ranges": [], "TR": 2.0, "TS": 0.0}}}
-    changed = app._apply_hours_to_resources(q, "Alice", ["Bob"])
-    assert changed == []
-    assert q["heures"]["Bob"]["Coffrage"]["TR"] == 2.0
-
-
-def test_apply_hours_ignores_source_in_dests():
-    q = app._empty_quart()
-    q["heures"] = {"Alice": {"Excavation": {"mode": "direct", "ranges": [], "TR": 4.0, "TS": 0.0}}}
-    changed = app._apply_hours_to_resources(q, "Alice", ["Alice", "Bob"])
-    assert changed == ["Bob"]
-
-
 def test_apply_dict_copies_to_empty_dest():
     q = app._empty_quart()
     q["personnel"] = ["Alice", "Bob"]
