@@ -550,8 +550,12 @@ def get_css():
         letter-spacing: 1px; font-weight: 700; line-height: 1.2; margin: 0 !important;
         position: absolute; left: 50%; top: 50%;
         transform: translate(-50%, -50%); white-space: nowrap; z-index: 1; }}
-    /* logo : dans le flux, à droite du cluster utilisateur (voir coin droit ci-dessous) */
-    .logo-wrap {{ display: flex; align-items: center; }}
+    /* logo : centré verticalement sur la bannière, ancré à droite */
+    .logo-wrap {{
+        position: absolute; right: 1.25rem; top: 50%;
+        transform: translateY(-50%); z-index: 2;
+        display: flex; align-items: center;
+    }}
     .logo-chip {{ background: #fff; border-radius: 7px; padding: 4px 9px;
         display: inline-flex; align-items: center; }}
     .logo-chip img {{ height: 32px; display: block; }}
@@ -563,19 +567,9 @@ def get_css():
     .st-key-hdr_retour button:hover {{
         background: rgba(255,255,255,0.28) !important; border-color: #fff !important; color: #fff !important;
     }}
-    /* Coin droit : logo + identité connectée + déconnexion, sur UNE ligne,
-       alignés à droite (le bloc vertical Streamlit est forcé en ligne). */
-    .st-key-ondel_header [data-testid="stColumn"]:last-child [data-testid="stVerticalBlock"] {{
-        flex-direction: row !important; flex-wrap: nowrap !important;
-        align-items: center !important; justify-content: flex-end !important;
-        gap: 0.6rem !important;
-    }}
-    .st-key-ondel_header [data-testid="stColumn"]:last-child [data-testid="stElementContainer"] {{
-        width: auto !important; flex: 0 0 auto !important;
-    }}
-    /* Identité connectée + déconnexion, alignées à droite sur la ligne du
-       titre « Tableau de bord hebdomadaire » (fond clair). */
-    .st-key-dash_user [data-testid="stVerticalBlock"] {{
+    /* Identité connectée + déconnexion : conteneur clé = bloc flex lui-même,
+       forcé en ligne et collé à l'extrême droite (sur la ligne du titre). */
+    .st-key-dash_user {{
         flex-direction: row !important; flex-wrap: nowrap !important;
         align-items: center !important; justify-content: flex-end !important;
         gap: 0.6rem !important;
