@@ -487,18 +487,21 @@ def _add_logo(ws, height_px=58):
     img.anchor = OneCellAnchor(_from=marker, ext=XDRPositiveSize2D(pixels_to_EMU(w), pixels_to_EMU(height_px)))
     ws.add_image(img)
 
-def _build_synthese(ws, proj, legacy_jours):
+def _build_synthese(ws, proj, legacy_jours, exported_by=""):
     ws.title = "Synthèse"
     _add_logo(ws)
     ws.merge_cells("B1:F1")
     t = ws["B1"]; t.value = "RAPPORT JOURNALIER — ONDEL"; t.font = _F_TITLE; t.fill = _FILL_TITLE
     ws.column_dimensions["A"].width = 20
+    last = ws.max_row + 2
+    cell = ws.cell(row=last, column=1, value=f"Exporté par {exported_by or '—'}")
+    cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
 
 def build_workbook():
     wb = Workbook()
     legacy = {(j, q): _legacy_day(st.session_state.jours[j]["quarts"][q])
               for j in JOURS for q in _day_quart_names(st.session_state.jours[j])}
-    _build_synthese(wb.active, st.session_state.projet, legacy)
+    _build_synthese(wb.active, st.session_state.projet, legacy, current_user()["name"])
     buf = BytesIO(); wb.save(buf); buf.seek(0)
     return buf
 
