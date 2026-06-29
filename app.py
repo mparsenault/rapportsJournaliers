@@ -113,6 +113,16 @@ def init_state():
     if "schema_ready" not in st.session_state:
         st.session_state.schema_ready = False
 
+def current_user():
+    """Identité connectée : {"name", "email"}. Chaînes vides si non connecté."""
+    user = getattr(st, "user", None)
+    if user is None or not getattr(user, "is_logged_in", False):
+        return {"name": "", "email": ""}
+    return {
+        "name": getattr(user, "name", "") or "",
+        "email": getattr(user, "email", "") or "",
+    }
+
 # --------------------------------------------------------------------------
 # Persistance Neon (chargement / sauvegarde des rapports saisis)
 # --------------------------------------------------------------------------
