@@ -202,7 +202,10 @@ def _connection():
     # minutes d'inactivité, ce qui ferme la connexion SSL côté serveur ; sans
     # cela, le premier INSERT échoue avec « SSL connection has been closed
     # unexpectedly ». pool_recycle force le renouvellement avant ce délai.
-    return st.connection("postgres", type="sql", pool_pre_ping=True, pool_recycle=300)
+    # connect_timeout : échoue vite si Neon est injoignable au lieu de bloquer
+    # le rendu (sinon spinner infini, ex. au démarrage sur Streamlit Cloud).
+    return st.connection("postgres", type="sql", pool_pre_ping=True, pool_recycle=300,
+                         connect_args={"connect_timeout": 10})
 
 
 def ensure_schema():

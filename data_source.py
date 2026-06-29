@@ -46,7 +46,10 @@ def activity_labels_from_df(df):
 def _connection():
     # pool_pre_ping + pool_recycle : évite « SSL connection has been closed
     # unexpectedly » quand Neon a suspendu le compute (cf. reports._connection).
-    return st.connection("postgres", type="sql", pool_pre_ping=True, pool_recycle=300)
+    # connect_timeout : évite que l'app tourne indéfiniment si Neon est
+    # injoignable (ex. sur Streamlit Cloud) — échoue vite, capté ci-dessous.
+    return st.connection("postgres", type="sql", pool_pre_ping=True, pool_recycle=300,
+                         connect_args={"connect_timeout": 10})
 
 
 def get_projects():
