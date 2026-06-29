@@ -550,12 +550,8 @@ def get_css():
         letter-spacing: 1px; font-weight: 700; line-height: 1.2; margin: 0 !important;
         position: absolute; left: 50%; top: 50%;
         transform: translate(-50%, -50%); white-space: nowrap; z-index: 1; }}
-    /* logo : centré verticalement sur la bannière, ancré à droite (même technique) */
-    .logo-wrap {{
-        position: absolute; right: 1.25rem; top: 50%;
-        transform: translateY(-50%); z-index: 2;
-        display: flex; align-items: center;
-    }}
+    /* logo : dans le flux, à droite du cluster utilisateur (voir coin droit ci-dessous) */
+    .logo-wrap {{ display: flex; align-items: center; }}
     .logo-chip {{ background: #fff; border-radius: 7px; padding: 4px 9px;
         display: inline-flex; align-items: center; }}
     .logo-chip img {{ height: 32px; display: block; }}
@@ -567,15 +563,17 @@ def get_css():
     .st-key-hdr_retour button:hover {{
         background: rgba(255,255,255,0.28) !important; border-color: #fff !important; color: #fff !important;
     }}
-    /* Coin droit : identité connectée + déconnexion, empilées et alignées à
-       droite, en réservant la place du logo (qui est positionné en absolu). */
+    /* Coin droit : logo + identité connectée + déconnexion, sur UNE ligne,
+       alignés à droite (le bloc vertical Streamlit est forcé en ligne). */
     .st-key-ondel_header [data-testid="stColumn"]:last-child [data-testid="stVerticalBlock"] {{
-        align-items: flex-end !important; gap: 0.2rem !important; padding-right: 4.5rem !important;
+        flex-direction: row !important; flex-wrap: nowrap !important;
+        align-items: center !important; justify-content: flex-end !important;
+        gap: 0.6rem !important;
     }}
     .st-key-ondel_header [data-testid="stColumn"]:last-child [data-testid="stElementContainer"] {{
-        width: auto !important;
+        width: auto !important; flex: 0 0 auto !important;
     }}
-    .hdr-user {{ color: #fff; font-weight: 600; font-size: 0.88rem;
+    .hdr-user {{ color: #fff; font-weight: 600; font-size: 0.9rem;
         white-space: nowrap; line-height: 1.2; margin: 0 !important; }}
     .st-key-hdr_logout button {{
         background: rgba(255,255,255,0.15) !important; color: #fff !important;
@@ -1525,13 +1523,13 @@ def main():
         with b_r:
             user = current_user()
             st.markdown(
-                f'<div class="logo-wrap"><span class="logo-chip"><img src="{uri}"></span></div>',
-                unsafe_allow_html=True)
-            st.markdown(
                 f'<div class="hdr-user">👤 {user["name"] or user["email"] or "—"}</div>',
                 unsafe_allow_html=True)
             if st.button("Se déconnecter", key="hdr_logout"):
                 st.logout()
+            st.markdown(
+                f'<div class="logo-wrap"><span class="logo-chip"><img src="{uri}"></span></div>',
+                unsafe_allow_html=True)
     
     if st.session_state.view == "dashboard": view_dashboard()
     elif st.session_state.view == "day_entry": view_day_entry()
