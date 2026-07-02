@@ -67,6 +67,33 @@ def test_save_report_accepts_saved_by_param():
     assert "saved_by" in sig.parameters
 
 
+def test_ensure_schema_once_per_process_and_commits_each(monkeypatch):
+    # Anti-deadlock : chaque instruction est commit séparément (verrou relâché
+    # aussitôt) et les migrations ne rejouent pas une 2e fois dans le processus.
+    reports._schema_ensured = False
+    calls = {"exec": 0, "commit": 0}
+
+    class _FakeSession:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, _stmt): calls["exec"] += 1
+        def commit(self): calls["commit"] += 1
+
+    class _FakeConn:
+        session = _FakeSession()
+
+    monkeypatch.setattr(reports, "_connection", lambda: _FakeConn())
+    try:
+        reports.ensure_schema()
+        n = len(reports._DDL_STATEMENTS)
+        assert calls["exec"] == n
+        assert calls["commit"] == n          # un commit par instruction
+        reports.ensure_schema()              # 2e appel : garde processus -> no-op
+        assert calls["exec"] == n
+    finally:
+        reports._schema_ensured = False      # ne pas polluer les autres tests
+
+
 def test_ddl_has_prime_codes_migration():
     ddl = " ".join(reports._DDL_STATEMENTS)
     assert "report_lines add column if not exists prime_codes text[]" in ddl

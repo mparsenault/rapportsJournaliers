@@ -213,13 +213,29 @@ def _connection():
                          connect_args={"connect_timeout": 10})
 
 
+_schema_ensured = False   # garde processus : les migrations ne tournent qu'une fois
+
+
 def ensure_schema():
-    """Crée les tables de rapports si absentes. Idempotent."""
+    """Crée/migre les tables de rapports. Idempotent, et exécuté au plus une
+    fois par processus.
+
+    Les instructions ALTER TABLE prennent un AccessExclusiveLock. Les regrouper
+    dans une seule transaction (commit final) retenait ces verrous pendant tout
+    le lot ; combiné à une réexécution à chaque session, cela provoquait un
+    deadlock avec un enregistrement concurrent (delete en cascade sur
+    report_lines). On commit donc après CHAQUE instruction (verrou relâché
+    aussitôt) et on ne rejoue pas les migrations une fois faites dans ce
+    processus."""
+    global _schema_ensured
+    if _schema_ensured:
+        return
     conn = _connection()
     with conn.session as s:
         for stmt in _DDL_STATEMENTS:
             s.execute(text(stmt))
-        s.commit()
+            s.commit()   # relâche immédiatement le verrou pris par l'instruction
+    _schema_ensured = True
 
 
 # --------------------------------------------------------------------------
