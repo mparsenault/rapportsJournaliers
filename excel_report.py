@@ -202,6 +202,48 @@ def _day_total_row(ws, row, tr, ts, eq):
     return row + 1
 
 
+_EQUIP_LEGEND = ("Codes d'équipement :  BT chariot · C camion · D détecteur · "
+                 "É échafaudage · G grue · N nacelle")
+
+
+def _equip_legend(ws, row):
+    """Légende des codes d'équipement (petite police grise). Prochaine ligne."""
+    row += 1
+    ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
+    cell = ws.cell(row=row, column=1, value=_EQUIP_LEGEND)
+    cell.font = _F_LEGEND
+    cell.alignment = _LEFT
+    return row + 1
+
+
+def _comments_block(ws, row):
+    """Libellé 'Commentaires / plaintes / suggestions :' + cadre vide (3 lignes)."""
+    row += 1
+    ws.cell(row=row, column=1,
+            value="Commentaires / plaintes / suggestions :").font = _F_LABEL
+    row += 1
+    ws.merge_cells(start_row=row, end_row=row + 2, start_column=1, end_column=_NCOL)
+    dash = Side(style="dashed", color=_GREY)
+    box = Border(left=dash, right=dash, top=dash, bottom=dash)
+    for r in range(row, row + 3):
+        for c in range(1, _NCOL + 1):
+            ws.cell(row=r, column=c).border = box
+    return row + 3
+
+
+def _signature_block(ws, row):
+    """Deux blocs de signature vides : 'Revu par' et 'Approuvé par'."""
+    row += 2  # espace au-dessus des lignes de signature
+    half = _NCOL // 2
+    line = Border(bottom=Side(style="thin", color=_SIGN_LINE))
+    for c in range(1, _NCOL + 1):
+        ws.cell(row=row, column=c).border = line
+    row += 1
+    ws.cell(row=row, column=1, value="Revu par").font = _F_SIGN
+    ws.cell(row=row, column=half + 1, value="Approuvé par").font = _F_SIGN
+    return row + 1
+
+
 def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     """Écrit le rapport d'une journée dans la feuille `ws`."""
     ws.title = _safe_title(jour_name)
@@ -238,6 +280,10 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
         day_eq += eq
 
     row = _day_total_row(ws, row, day_tr, day_ts, day_eq)
+
+    row = _equip_legend(ws, row)
+    row = _comments_block(ws, row)
+    row = _signature_block(ws, row)
 
     _stamp(ws, exported_by)
 

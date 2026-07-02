@@ -151,6 +151,15 @@ def test_build_day_workbook_total_de_la_journee():
     assert ws.cell(row, 4).value == 1.0    # TS : 0 + 1
 
 
+def test_build_day_workbook_bas_de_page():
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
+    txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])
+    assert "Codes d'équipement" in txt
+    assert "Commentaires / plaintes / suggestions" in txt
+    assert "Revu par" in txt
+    assert "Approuvé par" in txt
+
+
 def test_build_day_email_renvoie_sujet_nom_et_bytes():
     subject, html, filename, data = excel_report.build_day_email(
         _projet(), "Lundi", _day_rempli(), "Test User")
