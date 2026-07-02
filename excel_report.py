@@ -20,7 +20,7 @@ _BAND = "EEF8F9"
 _GREY = "D9E2E4"
 _THIN = Side(style="thin", color=_GREY)
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
-_F_TITLE = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
+_F_TITLE = Font(name="Calibri", size=18, bold=True, color="FFFFFF")
 _F_HEAD = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
 _F_LABEL = Font(name="Calibri", size=10, bold=True, color=_TEAL_DK)
 _F_TOTAL = Font(name="Calibri", size=10, bold=True, color="0E2A2E")
@@ -30,6 +30,13 @@ _FILL_BAND = PatternFill("solid", fgColor=_BAND)
 _CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _LEFT = Alignment(horizontal="left", vertical="center")
 _HOURS_FMT = "0.00"
+
+_BAND_LT = "F5FBFC"          # bande claire secondaire
+_SIGN_LINE = "9FB0B2"        # ligne de signature
+_F_SUB = Font(name="Calibri", size=9, color="FFFFFF")
+_F_SIGN = Font(name="Calibri", size=9, color="5F6E70")
+_F_LEGEND = Font(name="Calibri", size=8, color="5F6E70")
+_RIGHT = Alignment(horizontal="right", vertical="center")
 
 
 def _add_logo(ws, height_px=58):
@@ -115,28 +122,58 @@ def _quart_info(qname, quart, exported_by=""):
     return "    ·    ".join(parts)
 
 
+def _title_band(ws, projet):
+    """Bandeau titre teal (lignes 1-2) : logo, 'Rapport journalier' + sous-titre,
+    et à droite 'Projet <no>' + pagination. Renvoie la prochaine ligne libre."""
+    for r in (1, 2):
+        for c in range(1, _NCOL + 1):
+            ws.cell(row=r, column=c).fill = _FILL_TITLE
+    ws.merge_cells(start_row=1, end_row=1, start_column=2, end_column=_NCOL - 1)
+    t = ws.cell(row=1, column=2, value="Rapport journalier")
+    t.font = _F_TITLE
+    t.alignment = _LEFT
+    sub = ws.cell(row=2, column=2, value="Ondel")
+    sub.font = _F_SUB
+    sub.alignment = _LEFT
+    p = ws.cell(row=1, column=_NCOL, value=f"Projet {projet.get('no') or ''}".strip())
+    p.font = _F_SUB
+    p.alignment = _RIGHT
+    pg = ws.cell(row=2, column=_NCOL, value="Page 1 de 1")
+    pg.font = _F_SUB
+    pg.alignment = _RIGHT
+    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[2].height = 16
+    _add_logo(ws)
+    return 4  # ligne 3 laissée vide, méta démarre en 4
+
+
+def _meta_block(ws, row, projet, jour_name, day):
+    """Bloc méta jour : Date, Adresse. Renvoie la prochaine ligne libre."""
+    d = day.get("date")
+    date_txt = app.fr_date_long(d) if d else ""
+    ws.cell(row=row, column=1, value="Date :").font = _F_LABEL
+    ws.cell(row=row, column=2, value=f"{jour_name} {date_txt}".strip())
+    row += 1
+    ws.cell(row=row, column=1, value="Adresse :").font = _F_LABEL
+    ws.cell(row=row, column=2, value=projet.get("adresse") or "")
+    return row + 2  # une ligne vide avant le premier quart
+
+
+def _stamp(ws, exported_by):
+    """Estampille discrète en pied de feuille."""
+    last = ws.max_row + 2
+    cell = ws.cell(row=last, column=1, value=f"Exporté par {exported_by or '—'}")
+    cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
+
+
 def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     """Écrit le rapport d'une journée dans la feuille `ws`."""
     ws.title = _safe_title(jour_name)
-    _add_logo(ws)
     _apply_widths(ws, _PERS_COLS)
 
-    ws.merge_cells(start_row=1, end_row=1, start_column=2, end_column=_NCOL)
-    t = ws.cell(row=1, column=2, value="RAPPORT JOURNALIER — ONDEL")
-    t.font = _F_TITLE
-    t.fill = _FILL_TITLE
-    ws.row_dimensions[1].height = 38
+    row = _title_band(ws, projet)
+    row = _meta_block(ws, row, projet, jour_name, day)
 
-    d = day.get("date")
-    date_txt = app.fr_date_long(d) if d else ""
-    ws.cell(row=3, column=1, value="No Projet :").font = _F_LABEL
-    ws.cell(row=3, column=2, value=str(projet.get("no") or ""))
-    ws.cell(row=4, column=1, value="Date :").font = _F_LABEL
-    ws.cell(row=4, column=2, value=f"{jour_name} {date_txt}".strip())
-    ws.cell(row=5, column=1, value="Adresse :").font = _F_LABEL
-    ws.cell(row=5, column=2, value=projet.get("adresse") or "")
-
-    row = 7
     for qname in app._day_quart_names(day):
         quart = day["quarts"][qname]
         if app._quart_total(quart) <= 0:
@@ -159,10 +196,7 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
             row += 1
         row += 1
 
-    # Estampille (dernière écriture)
-    last = ws.max_row + 2
-    cell = ws.cell(row=last, column=1, value=f"Exporté par {exported_by or '—'}")
-    cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
+    _stamp(ws, exported_by)
 
 
 def _write_resource_table(ws, row, quart, names, cols, *, with_equip):

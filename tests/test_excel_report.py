@@ -37,8 +37,9 @@ def test_build_day_workbook_une_feuille_et_entete():
     wb = openpyxl.load_workbook(buf)
     assert wb.sheetnames == ["Lundi"]
     txt = _all_text(wb["Lundi"])
-    assert "RAPPORT JOURNALIER — ONDEL" in txt
-    assert "12345" in txt                      # No Projet
+    assert "Rapport journalier" in txt
+    assert "12345" in txt                      # No Projet (bandeau titre)
+    assert "123 rue Principale" in txt         # adresse (bloc méta)
     assert "Mathis Lajeunesse" in txt          # ligne de personnel
     assert "Exporté par Test User" in txt      # estampille
 
@@ -108,7 +109,7 @@ def test_build_day_workbook_jour_vide_sans_personnel():
     buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_vide(), "")
     wb = openpyxl.load_workbook(buf)
     txt = _all_text(wb["Lundi"])
-    assert "RAPPORT JOURNALIER — ONDEL" in txt
+    assert "Rapport journalier" in txt
     assert "Mathis" not in txt
 
 
