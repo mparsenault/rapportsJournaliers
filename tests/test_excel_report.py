@@ -100,6 +100,12 @@ def test_build_day_workbook_meteo_dans_panneau_entete():
     assert col >= 5                    # colonne E ou plus (côté droit)
 
 
+def test_build_day_workbook_sans_quadrillage():
+    ws = openpyxl.load_workbook(
+        excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), ""))["Lundi"]
+    assert ws.sheet_view.showGridLines is False
+
+
 def test_build_day_workbook_entete_travaux_effectues():
     buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
     txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])

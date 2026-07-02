@@ -306,6 +306,7 @@ def _signature_block(ws, row):
 def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     """Écrit le rapport d'une journée dans la feuille `ws`."""
     ws.title = _safe_title(jour_name)
+    ws.sheet_view.showGridLines = False   # rendu épuré : seules les bordures du rapport
     _apply_widths(ws, _PERS_COLS)
 
     row = _title_band(ws, projet)
