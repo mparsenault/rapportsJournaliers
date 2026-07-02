@@ -29,6 +29,9 @@ _FILL_HEAD = PatternFill("solid", fgColor=_TEAL_DK)
 _FILL_BAND = PatternFill("solid", fgColor=_BAND)
 _CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _LEFT = Alignment(horizontal="left", vertical="center")
+# Colonne Nom / Activité : retour à la ligne pour les longs libellés d'activité
+# (les tableurs ajustent alors automatiquement la hauteur de ligne).
+_LEFT_WRAP = Alignment(horizontal="left", vertical="center", wrap_text=True)
 _HOURS_FMT = "0.00"
 
 _SIGN_LINE = "9FB0B2"        # ligne de signature
@@ -86,7 +89,7 @@ def _write_row(ws, row, values, *, bold=False, fill=None, fmt=None):
     for col, val in enumerate(values, start=1):
         cell = ws.cell(row=row, column=col, value=val)
         cell.border = _BORDER
-        cell.alignment = _LEFT if col == 1 else _CENTER
+        cell.alignment = _LEFT_WRAP if col == 1 else _CENTER
         if bold:
             cell.font = _F_HEAD if fill is _FILL_HEAD else _F_TOTAL
         if fill is not None:
