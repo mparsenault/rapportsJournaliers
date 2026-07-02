@@ -96,7 +96,7 @@ def _write_row(ws, row, values, *, bold=False, fill=None, fmt=None):
 
 
 # Colonnes fixes (regroupement par ressource : activités + plages en sous-lignes).
-_PERS_COLS = ["Nom / Activité", "Plage", "TR", "TS", "Hrs Éq.", "Code Éq.", "Prime", "Travaux effectués"]
+_PERS_COLS = ["Nom / Activité", "Plage", "TR", "TS", "Code Éq.", "Hrs Éq.", "Prime", "Travaux effectués"]
 _EQUIP_COLS = ["Véhicule / Activité", "Plage", "TR", "TS", "Prime", "Commentaire"]
 _NCOL = len(_PERS_COLS)  # largeur de la feuille (le tableau personnel est le plus large)
 
@@ -165,13 +165,11 @@ def _title_band(ws, projet):
     for r in (1, 2):
         for c in range(1, _NCOL + 1):
             ws.cell(row=r, column=c).fill = _FILL_TITLE
-    ws.merge_cells(start_row=1, end_row=1, start_column=2, end_column=_NCOL - 1)
+    # Titre centré sur 2 lignes (le logo occupe la colonne A) ; projet + pagination à droite.
+    ws.merge_cells(start_row=1, end_row=2, start_column=2, end_column=_NCOL - 1)
     t = ws.cell(row=1, column=2, value="Rapport journalier")
     t.font = _F_TITLE
-    t.alignment = _LEFT
-    sub = ws.cell(row=2, column=2, value="Ondel")
-    sub.font = _F_SUB
-    sub.alignment = _LEFT
+    t.alignment = Alignment(horizontal="center", vertical="center")
     p = ws.cell(row=1, column=_NCOL, value=f"Projet {projet.get('no') or ''}".strip())
     p.font = _F_SUB
     p.alignment = _RIGHT
@@ -180,66 +178,56 @@ def _title_band(ws, projet):
     pg.alignment = _RIGHT
     ws.row_dimensions[1].height = 30
     ws.row_dimensions[2].height = 16
+    ws.row_dimensions[3].height = 11  # mince séparateur avant le bloc méta
     _add_logo(ws)
     return 4  # ligne 3 laissée vide, méta démarre en 4
 
 
-def _meta_block(ws, row, projet, jour_name, day):
-    """Bloc méta jour (gauche) : Date, Adresse. Valeurs fusionnées sur B:D pour
-    ne pas empiéter sur le panneau météo (E:H). Renvoie la prochaine ligne."""
-    d = day.get("date")
-    date_txt = app.fr_date_long(d) if d else ""
-    ws.cell(row=row, column=1, value="Date :").font = _F_LABEL
-    ws.merge_cells(start_row=row, end_row=row, start_column=2, end_column=4)
-    ws.cell(row=row, column=2, value=f"{jour_name} {date_txt}".strip())
-    row += 1
-    ws.cell(row=row, column=1, value="Adresse :").font = _F_LABEL
-    ws.merge_cells(start_row=row, end_row=row, start_column=2, end_column=4)
-    ws.cell(row=row, column=2, value=projet.get("adresse") or "")
-    return row + 2  # une ligne vide avant le premier quart
-
-
 def _primary_quart(day):
-    """Premier quart rempli (ordre Jour/Soir/Nuit) — sa météo alimente le
-    panneau d'en-tête. None si aucun quart rempli."""
+    """(nom, quart) du premier quart rempli (ordre Jour/Soir/Nuit) — il alimente
+    le bloc méta (contremaître, quart, météo). (None, None) si aucun quart rempli."""
     for qname in app._day_quart_names(day):
         q = day["quarts"][qname]
         if app._quart_total(q) > 0:
-            return q
-    return None
+            return qname, q
+    return None, None
 
 
-def _weather_panel(ws, top_row, quart):
-    """Panneau Température/Conditions en haut à droite (cols E:H, 2 lignes),
-    à la manière du formulaire officiel. Rien si aucune donnée météo."""
-    if quart is None:
-        return
-    tam, tpm = quart.get("temp_am"), quart.get("temp_pm")
-    conds = ", ".join(quart.get("conditions") or [])
-    if tam is None and tpm is None and not conds:
-        return
-    lab_c, val_c = _NCOL - 3, _NCOL - 1          # E:F = libellé, G:H = valeur
+def _meta_panel(ws, top, projet, jour_name, day, qname, quart, exported_by=""):
+    """Bloc méta sur fond teal clair (lignes top..top+2, cols A:H).
+    Gauche : Date, Contremaître.  Droite : Température, Conditions, Quart.
+    Renvoie la prochaine ligne libre (une ligne vide de séparation incluse)."""
+    for r in range(top, top + 3):
+        for c in range(1, _NCOL + 1):
+            ws.cell(row=r, column=c).fill = _FILL_BAND
+
+    d = day.get("date")
+    date_txt = app.fr_date_long(d) if d else ""
+    resp = (quart or {}).get("responsable") or exported_by
+    tam, tpm = (quart or {}).get("temp_am"), (quart or {}).get("temp_pm")
+    conds = ", ".join((quart or {}).get("conditions") or [])
     a = tam if tam is not None else "—"
     p = tpm if tpm is not None else "—"
+
+    # Gauche : libellé col A, valeur col B (déborde sur C/D vides, remplis en teal clair).
+    for i, (lab, val) in enumerate([("Date :", f"{jour_name} {date_txt}".strip()),
+                                    ("Contremaître :", resp)]):
+        ws.cell(row=top + i, column=1, value=lab).font = _F_LABEL
+        ws.cell(row=top + i, column=2, value=val).alignment = _LEFT
+
+    # Droite : libellé fusionné E:F, valeur fusionnée G:H.
+    lab_c, val_c = _NCOL - 3, _NCOL - 1
     for i, (lab, val) in enumerate([("Température ext.", f"AM {a}  /  PM {p}"),
-                                    ("Conditions", conds or "—")]):
-        r = top_row + i
+                                    ("Conditions", conds or "—"),
+                                    ("Quart :", qname or "—")]):
+        r = top + i
         ws.merge_cells(start_row=r, end_row=r, start_column=lab_c, end_column=val_c - 1)
-        lc = ws.cell(row=r, column=lab_c, value=lab)
-        lc.font = _F_LABEL
-        lc.alignment = _LEFT
+        ws.cell(row=r, column=lab_c, value=lab).font = _F_LABEL
         ws.merge_cells(start_row=r, end_row=r, start_column=val_c, end_column=_NCOL)
         ws.cell(row=r, column=val_c, value=val).alignment = _LEFT
-    edge = Side(style="thin", color=_TEAL_DK)
-    for r in range(top_row, top_row + 2):
-        for c in range(lab_c, _NCOL + 1):
-            cell = ws.cell(row=r, column=c)
-            cell.fill = _FILL_BAND
-            cell.border = Border(
-                left=edge if c == lab_c else Side(),
-                right=edge if c == _NCOL else Side(),
-                top=edge if r == top_row else Side(),
-                bottom=edge if r == top_row + 1 else Side())
+
+    ws.row_dimensions[top + 3].height = 11  # mince séparateur avant le tableau
+    return top + 4
 
 
 def _stamp(ws, exported_by):
@@ -264,7 +252,8 @@ def _quart_hour_totals(quart):
 def _day_total_row(ws, row, tr, ts, eq):
     """Ligne 'Total de la journée' (gras, filet teal au-dessus). Prochaine ligne."""
     row += 1  # espace avant le total
-    vals = ["Total de la journée", None, tr, ts, (eq or None)] + [None] * (_NCOL - 5)
+    # Cols : [label, Plage, TR, TS, Code Éq., Hrs Éq., ...] -> heures d'équipement en col 6.
+    vals = ["Total de la journée", None, tr, ts, None, (eq or None)] + [None] * (_NCOL - 6)
     _write_row(ws, row, vals, bold=True, fmt=_HOURS_FMT)
     top = Side(style="medium", color=_TEAL)
     for c in range(1, _NCOL + 1):
@@ -275,16 +264,26 @@ def _day_total_row(ws, row, tr, ts, eq):
 
 _EQUIP_LEGEND = ("Codes d'équipement :  BT chariot · C camion · D détecteur · "
                  "É échafaudage · G grue · N nacelle")
+_PRIME_LEGEND = ("Code de prime :  I intempérie · S surtemps · G galvanisé · T poste HT · "
+                 "A peinture · Pa panier · P préavis · H hauteur · R repas · "
+                 "Pu puissance · Co contrôle")
 
 
-def _equip_legend(ws, row):
-    """Légende des codes d'équipement (petite police grise). Prochaine ligne."""
+def _legend_line(ws, row, text):
+    """Une ligne de légende (petite police grise, fusionnée A:H). Prochaine ligne."""
     row += 1
     ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
-    cell = ws.cell(row=row, column=1, value=_EQUIP_LEGEND)
+    cell = ws.cell(row=row, column=1, value=text)
     cell.font = _F_LEGEND
     cell.alignment = _LEFT
     return row + 1
+
+
+def _equip_legend(ws, row):
+    """Légendes des codes d'équipement puis des codes de prime. Prochaine ligne."""
+    row = _legend_line(ws, row, _EQUIP_LEGEND)
+    row = _legend_line(ws, row - 1, _PRIME_LEGEND)  # -1 : légendes accolées
+    return row
 
 
 def _comments_block(ws, row):
@@ -321,18 +320,18 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     _apply_widths(ws, _PERS_COLS)
 
     row = _title_band(ws, projet)
-    meta_top = row
-    row = _meta_block(ws, row, projet, jour_name, day)
-    primary = _primary_quart(day)
-    _weather_panel(ws, meta_top, primary)
+    prim_name, primary = _primary_quart(day)
+    row = _meta_panel(ws, row, projet, jour_name, day, prim_name, primary, exported_by)
 
     day_tr = day_ts = day_eq = 0.0
     for qname in app._day_quart_names(day):
         quart = day["quarts"][qname]
         if app._quart_total(quart) <= 0:
             continue
-        row = _quart_header(ws, row, qname, quart, exported_by,
-                            show_weather=(quart is not primary))
+        # Le quart primaire est décrit dans le bloc méta : pas de bandeau. Les
+        # quarts supplémentaires (Soir/Nuit) gardent un bandeau + leur météo.
+        if quart is not primary:
+            row = _quart_header(ws, row, qname, quart, exported_by, show_weather=True)
         if quart.get("description"):
             ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
             ws.cell(row=row, column=1,
@@ -372,6 +371,7 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
     ncol = len(cols)
     extra = ncol - 4  # colonnes après [label, Plage, TR, TS]
     _write_row(ws, row, cols, bold=True, fill=_FILL_HEAD)
+    ws.row_dimensions[row].height = 22
     row += 1
 
     heures = quart.get("heures") or {}
@@ -416,13 +416,13 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
                 ts = float(norm.get("TS") or 0)
                 tr_tot += tr
                 ts_tot += ts
-                _write_row(ws, row, ["  " + label, "directe", tr, ts]
+                _write_row(ws, row, ["  " + label, None, tr, ts]
                            + [None] * extra, fmt=_HOURS_FMT)
                 row += 1
 
         if with_equip:
             codes = ", ".join(eqc.get(name) or []) or None
-            total = ["Total", None, tr_tot, ts_tot, eqh.get(name), codes,
+            total = ["Total", None, tr_tot, ts_tot, codes, eqh.get(name),
                      prime.get(name), comm.get(name)]
         else:
             total = ["Total", None, tr_tot, ts_tot, prime.get(name), comm.get(name)]

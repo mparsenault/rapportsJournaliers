@@ -39,7 +39,7 @@ def test_build_day_workbook_une_feuille_et_entete():
     txt = _all_text(wb["Lundi"])
     assert "Rapport journalier" in txt
     assert "12345" in txt                      # No Projet (bandeau titre)
-    assert "123 rue Principale" in txt         # adresse (bloc méta)
+    assert "Contremaître :" in txt             # champ méta (remplace l'adresse)
     assert "Mathis Lajeunesse" in txt          # ligne de personnel
     assert "Exporté par Test User" in txt      # estampille
 
@@ -67,7 +67,7 @@ def test_build_day_workbook_groupe_par_employe():
 
 def test_build_day_workbook_responsable_repli_sur_exportateur():
     # Quart sans responsable estampillé : le nom de l'exportateur (personne
-    # connectée) doit apparaître dans la bande du quart.
+    # connectée) doit apparaître comme Contremaître dans le bloc méta.
     q = app._empty_quart()
     q["personnel"] = ["Bob"]
     q["heures"] = {"Bob": {"Excavation": {"TR": 8.0, "TS": 0.0}}}
@@ -75,7 +75,8 @@ def test_build_day_workbook_responsable_repli_sur_exportateur():
     day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
     buf = excel_report.build_day_workbook(_projet(), "Lundi", day, "Marie-Pier Arsenault")
     txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])
-    assert "Resp. : Marie-Pier Arsenault" in txt
+    assert "Contremaître :" in txt
+    assert "Marie-Pier Arsenault" in txt        # repli sur l'exportateur
 
 
 def test_build_day_workbook_temperature_et_conditions():
@@ -138,6 +139,25 @@ def test_build_day_workbook_jour_vide_sans_personnel():
     txt = _all_text(wb["Lundi"])
     assert "Rapport journalier" in txt
     assert "Mathis" not in txt
+
+
+def test_build_day_workbook_quart_et_legende_prime():
+    # Le quart est un champ du bloc méta (plus de bandeau) et la légende des
+    # codes de prime est présente.
+    txt = _all_text(openpyxl.load_workbook(
+        excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), ""))["Lundi"])
+    assert "Quart :" in txt
+    assert "Code de prime" in txt
+
+
+def test_build_day_workbook_ordre_colonnes_code_puis_hrs_eq():
+    # En-tête du tableau : « Code Éq. » (col E) précède « Hrs Éq. » (col F).
+    ws = openpyxl.load_workbook(
+        excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), ""))["Lundi"]
+    header = next(r for r in range(1, ws.max_row + 1)
+                  if ws.cell(r, 1).value == "Nom / Activité")
+    assert ws.cell(header, 5).value == "Code Éq."
+    assert ws.cell(header, 6).value == "Hrs Éq."
 
 
 def test_build_week_workbook_une_feuille_par_jour_rempli():
