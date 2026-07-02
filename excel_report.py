@@ -399,17 +399,17 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
             norm = app._norm_entry(acts[label])
             ranges = norm.get("ranges") or []
             if ranges:
-                # Activité (sous-ligne) puis une ligne par plage.
-                _write_row(ws, row, ["  " + label] + [None] * (ncol - 1))
-                row += 1
-                for r in ranges:
+                # Une ligne par plage : nom d'activité en col A (1re plage),
+                # l'horaire dans la colonne Plage, les heures en TR/TS.
+                for j, r in enumerate(ranges):
                     deb = (r or {}).get("debut")
                     fin = (r or {}).get("fin")
                     typ = "TS" if (r or {}).get("type") == "TS" else "TR"
                     dur = app._range_hours(deb, fin)
                     tr = dur if typ == "TR" else 0.0
                     ts = dur if typ == "TS" else 0.0
-                    _write_row(ws, row, [f"      {deb} – {fin}", typ, tr, ts]
+                    lbl = ("  " + label) if j == 0 else None
+                    _write_row(ws, row, [lbl, f"{deb} – {fin}", tr, ts]
                                + [None] * extra, fmt=_HOURS_FMT)
                     row += 1
             else:

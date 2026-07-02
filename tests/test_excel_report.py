@@ -129,7 +129,8 @@ def test_build_day_workbook_entete_travaux_effectues():
 
 
 def test_build_day_workbook_plages_horaires_par_activite():
-    # Une activité en mode « plage » affiche ses créneaux début–fin et leur type.
+    # Mode « plage » : l'horaire va dans la colonne Plage (B), le nom d'activité
+    # en col A, les heures dérivées en TR/TS.
     q = app._empty_quart()
     q["personnel"] = ["Bob"]
     q["heures"] = {"Bob": {"Excavation": {
@@ -140,9 +141,11 @@ def test_build_day_workbook_plages_horaires_par_activite():
     day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
     buf = excel_report.build_day_workbook(_projet(), "Lundi", day, "")
     ws = openpyxl.load_workbook(buf)["Lundi"]
+    col_b = [str(c.value) for c in ws["B"] if c.value not in (None, "")]
+    assert any("07:00 – 12:00" in v for v in col_b)         # plage 1 dans col Plage
+    assert any("13:00 – 14:00" in v for v in col_b)         # plage 2
     col_a = [str(c.value) for c in ws["A"] if c.value not in (None, "")]
-    assert any("07:00 – 12:00" in v for v in col_a)         # plage 1
-    assert any("13:00 – 14:00" in v for v in col_a)         # plage 2
+    assert any("Excavation" in v for v in col_a)            # nom d'activité en col A
     vals = [c.value for row in ws.iter_rows() for c in row]
     assert 5.0 in vals and 1.0 in vals                       # heures TR / TS dérivées
 
