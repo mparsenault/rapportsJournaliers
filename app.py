@@ -65,6 +65,20 @@ def _equip_code_label(code):
     return f"{code} — {_EQUIP_CODE_LABELS.get(code, code)}"
 
 
+PRIME_CODES = [
+    ("I", "Intempérie"), ("S", "Surtemps"), ("G", "Galvanisé"),
+    ("T", "Poste HT"), ("A", "Peinture"), ("Pa", "Panier"),
+    ("P", "Préavis"), ("H", "Hauteur"), ("R", "Repas"),
+    ("Pu", "Puissance"), ("Co", "Contrôle"),
+]
+PRIME_CODE_VALUES = [c for c, _ in PRIME_CODES]
+_PRIME_CODE_LABELS = dict(PRIME_CODES)
+
+
+def _prime_code_label(code):
+    return f"{code} — {_PRIME_CODE_LABELS.get(code, code)}"
+
+
 # Couleurs Ondel
 ONDEL_GREEN = "#0999AA"
 ONDEL_GREEN_DARK = "#077A88"
@@ -219,7 +233,7 @@ def _empty_quart():
         "responsable": "", "activites": [], "autres": [],
         "personnel": [], "equipements": [],
         "temp_am": None, "temp_pm": None, "conditions": [],
-        "heures": {}, "prime": {}, "commentaire_ligne": {},
+        "heures": {}, "prime_codes": {}, "commentaire_ligne": {},
         "equip_codes": {}, "equip_hours": {},
         "description": "",
     }
@@ -490,7 +504,7 @@ def _legacy_day(quart):
             if with_equip:
                 rec["Hrs Éq."] = quart["equip_hours"].get(name)
                 rec["Code Éq."] = ", ".join(quart["equip_codes"].get(name, []))
-            rec["Prime"] = quart["prime"].get(name)
+            rec["Prime"] = ", ".join(quart["prime_codes"].get(name) or [])
             rec["Commentaire"] = quart["commentaire_ligne"].get(name, "")
             recs.append(rec)
         cols = [label_col] + HOUR_KEYS + ["TR", "TS"]
@@ -1322,13 +1336,14 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
     # --- Prime + commentaire ---
     cp, cc = st.columns([1, 3])
     p_key = f"p_{jour}_{quart_name}_{name}"
-    st.session_state.setdefault(p_key, _to_hours(quart["prime"].get(name)))
-    prime = cp.number_input("Prime ($)", key=p_key, min_value=0.0, step=0.5,
-                            format="%.2f", on_change=_mark_dirty)
-    if prime > 0:
-        quart["prime"][name] = float(prime)
-    elif name in quart["prime"]:
-        del quart["prime"][name]
+    if p_key not in st.session_state:
+        st.session_state[p_key] = list(quart["prime_codes"].get(name, []))
+    codes = cp.pills("Prime", PRIME_CODE_VALUES, selection_mode="multi",
+                     format_func=_prime_code_label, key=p_key, on_change=_mark_dirty)
+    if codes:
+        quart["prime_codes"][name] = list(codes)
+    elif name in quart["prime_codes"]:
+        del quart["prime_codes"][name]
     c_key = f"c_{jour}_{quart_name}_{name}"
     st.session_state.setdefault(c_key, quart["commentaire_ligne"].get(name, ""))
     com = cc.text_input("Commentaire", key=c_key, on_change=_mark_dirty)

@@ -65,3 +65,9 @@ def test_save_report_accepts_saved_by_param():
     import inspect
     sig = inspect.signature(reports.save_report)
     assert "saved_by" in sig.parameters
+
+
+def test_ddl_has_prime_codes_migration():
+    ddl = " ".join(reports._DDL_STATEMENTS)
+    assert "report_lines add column if not exists prime_codes text[]" in ddl
+    assert "report_lines drop column if exists prime" in ddl

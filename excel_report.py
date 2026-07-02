@@ -378,7 +378,7 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
     row += 1
 
     heures = quart.get("heures") or {}
-    prime = quart.get("prime") or {}
+    prime = quart.get("prime_codes") or {}
     comm = quart.get("commentaire_ligne") or {}
     eqh = quart.get("equip_hours") or {}
     eqc = quart.get("equip_codes") or {}
@@ -426,9 +426,9 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
         if with_equip:
             codes = ", ".join(eqc.get(name) or []) or None
             total = ["Total", None, tr_tot, ts_tot, codes, eqh.get(name),
-                     prime.get(name), comm.get(name)]
+                     ", ".join(prime.get(name) or []) or None, comm.get(name)]
         else:
-            total = ["Total", None, tr_tot, ts_tot, prime.get(name), comm.get(name)]
+            total = ["Total", None, tr_tot, ts_tot, ", ".join(prime.get(name) or []) or None, comm.get(name)]
         _write_row(ws, row, total, bold=True, fmt=_HOURS_FMT, fill=_FILL_BAND)
         row += 1
     return row

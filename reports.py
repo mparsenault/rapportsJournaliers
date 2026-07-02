@@ -11,7 +11,7 @@ Schéma normalisé, clé métier = (id_project, week_start) :
     report_quarts         : un quart d'un jour (Jour / Soir / Nuit)
     report_quart_resources: personnel ('P') + équipements ('E') du quart
     report_hours          : 1 ligne par ressource × activité × quart (grain fin)
-    report_lines          : prime + commentaire par ressource × quart
+    report_lines          : prime_codes + commentaire par ressource × quart
 
 IMPORTANT : aucune FK vers `projects`. sync_projects.py fait `delete from
 projects` à chaque sync ; une FK ON DELETE CASCADE effacerait les rapports.
@@ -157,6 +157,11 @@ _DDL_STATEMENTS = [
     # Équipement rattaché à l'employé : total d'heures + liste de codes (C/N/É/D/G/BT).
     "alter table report_lines add column if not exists equip_hours numeric",
     "alter table report_lines add column if not exists equip_codes text[] not null default '{}'",
+    # Prime rattachée à l'employé : liste de codes (I/S/G/T/A/Pa/P/H/R/Pu/Co)
+    # au lieu d'un montant. On ajoute la colonne tableau et on retire l'ancienne
+    # colonne numérique (les anciennes primes numériques sont abandonnées).
+    "alter table report_lines add column if not exists prime_codes text[] not null default '{}'",
+    "alter table report_lines drop column if exists prime",
     # Postgres ne retire PAS le NOT NULL implicite des colonnes quand on drop la
     # PK ci-dessus : day_id reste NOT NULL et bloque les inserts par quart_id
     # (day_id NULL) avec NotNullViolation. On le retire explicitement.
@@ -336,16 +341,16 @@ def save_report(projet, config, jours, jours_order, saved_by=None):
                                 {"q": quart_id, "rn": resource_name, "al": activity_label,
                                  "sq": seq, "sm": sm, "em": em,
                                  "k": "TS" if (rg or {}).get("type") == "TS" else "TR"})
-                prime = quart.get("prime") or {}
+                prime_codes = quart.get("prime_codes") or {}
                 commentaire = quart.get("commentaire_ligne") or {}
                 equip_hours = quart.get("equip_hours") or {}
                 equip_codes = quart.get("equip_codes") or {}
-                for resource_name in set(prime) | set(commentaire) | set(equip_hours) | set(equip_codes):
+                for resource_name in set(prime_codes) | set(commentaire) | set(equip_hours) | set(equip_codes):
                     s.execute(text("insert into report_lines "
-                                   "(quart_id, resource_name, prime, commentaire, equip_hours, equip_codes) "
-                                   "values (:q, :rn, :p, :c, :eh, :ec)"),
+                                   "(quart_id, resource_name, prime_codes, commentaire, equip_hours, equip_codes) "
+                                   "values (:q, :rn, :pc, :c, :eh, :ec)"),
                               {"q": quart_id, "rn": resource_name,
-                               "p": float(prime[resource_name]) if resource_name in prime else None,
+                               "pc": list(prime_codes.get(resource_name) or []),
                                "c": commentaire.get(resource_name) or None,
                                "eh": float(equip_hours[resource_name]) if resource_name in equip_hours else None,
                                "ec": list(equip_codes.get(resource_name) or [])})
@@ -417,10 +422,11 @@ def load_report(id_project, week_start):
                         "type": r["kind"]})
                     entry["mode"] = "plage"
                 lines = s.execute(
-                    text("select resource_name, prime, commentaire, equip_hours, equip_codes "
+                    text("select resource_name, prime_codes, commentaire, equip_hours, equip_codes "
                          "from report_lines where quart_id = :q"),
                     {"q": q["id"]}).mappings().all()
-                prime = {l["resource_name"]: float(l["prime"]) for l in lines if l["prime"] is not None}
+                prime_codes = {l["resource_name"]: list(l["prime_codes"])
+                               for l in lines if l["prime_codes"]}
                 commentaire = {l["resource_name"]: l["commentaire"] for l in lines if l["commentaire"]}
                 equip_hours = {l["resource_name"]: float(l["equip_hours"])
                                for l in lines if l["equip_hours"] is not None}
@@ -439,7 +445,7 @@ def load_report(id_project, week_start):
                     "autres": list(q["autres"] or []),
                     "personnel": [r["name"] for r in res if r["kind"] == "P"],
                     "equipements": [r["name"] for r in res if r["kind"] == "E"],
-                    "heures": heures, "prime": prime, "commentaire_ligne": commentaire,
+                    "heures": heures, "prime_codes": prime_codes, "commentaire_ligne": commentaire,
                     "equip_codes": equip_codes, "equip_hours": equip_hours,
                 }
             if not quarts_dict:

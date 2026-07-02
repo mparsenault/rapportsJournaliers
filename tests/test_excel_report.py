@@ -19,7 +19,7 @@ def _day_rempli():
     q["temp_am"] = 12.0
     q["conditions"] = ["Ensoleillé"]
     q["heures"] = {"Mathis Lajeunesse": {"Excavation": {"TR": 8.0, "TS": 1.0}}}
-    q["prime"] = {"Mathis Lajeunesse": 25.0}
+    q["prime_codes"] = {"Mathis Lajeunesse": ["S"]}
     return {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
 
 
@@ -130,7 +130,10 @@ def test_build_day_workbook_heures_et_prime_presentes():
     wb = openpyxl.load_workbook(buf)
     vals = [c.value for row in wb["Lundi"].iter_rows() for c in row]
     assert 8.0 in vals and 1.0 in vals     # TR et TS
-    assert 25.0 in vals                    # prime
+    ws = wb["Lundi"]
+    total = next(r for r in range(1, ws.max_row + 1)
+                 if ws.cell(r, 1).value == "Total")
+    assert ws.cell(total, 7).value == "S"   # code de prime dans la colonne Prime
 
 
 def test_build_day_workbook_jour_vide_sans_personnel():
