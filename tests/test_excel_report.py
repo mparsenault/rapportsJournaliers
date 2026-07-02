@@ -78,6 +78,14 @@ def test_build_day_workbook_responsable_repli_sur_exportateur():
     assert "Resp. : Marie-Pier Arsenault" in txt
 
 
+def test_build_day_workbook_temperature_et_conditions():
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
+    txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])
+    assert "Température" in txt
+    assert "Ensoleillé" in txt        # condition saisie (_day_rempli)
+    assert "12" in txt                # temp_am = 12.0
+
+
 def test_build_day_workbook_plages_horaires_par_activite():
     # Une activité en mode « plage » affiche ses créneaux début–fin et leur type.
     q = app._empty_quart()

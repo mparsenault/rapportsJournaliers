@@ -104,22 +104,34 @@ def _banner(ws, row, text):
     ws.row_dimensions[row].height = 20
 
 
-def _quart_info(qname, quart, exported_by=""):
-    parts = [f"Quart {qname}"]
-    # Le responsable est verrouillé sur la personne connectée ; il n'est estampillé
-    # dans le quart qu'à l'enregistrement. On retombe sur l'exportateur (même
-    # personne) pour qu'il apparaisse même si le rapport n'a pas été resauvegardé.
+def _quart_header(ws, row, qname, quart, exported_by=""):
+    """Bandeau de quart (teal foncé) : 'Quart X · Resp. Y', puis une sous-ligne
+    Température AM/PM + Conditions (bande claire). Renvoie la prochaine ligne."""
     resp = quart.get("responsable") or exported_by
+    label = f"Quart {qname}"
     if resp:
-        parts.append(f"Resp. : {resp}")
+        label += f"    ·    Resp. : {resp}"
+    _banner(ws, row, label)
+    row += 1
+
     tam, tpm = quart.get("temp_am"), quart.get("temp_pm")
+    conds = ", ".join(quart.get("conditions") or [])
+    parts = []
     if tam is not None or tpm is not None:
         a = tam if tam is not None else "—"
         p = tpm if tpm is not None else "—"
-        parts.append(f"Temp. AM {a} / PM {p}")
-    if quart.get("conditions"):
-        parts.append(", ".join(quart["conditions"]))
-    return "    ·    ".join(parts)
+        parts.append(f"Température : AM {a} / PM {p}")
+    if conds:
+        parts.append(f"Conditions : {conds}")
+    if parts:
+        ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
+        cell = ws.cell(row=row, column=1, value="    ·    ".join(parts))
+        cell.font = _F_LABEL
+        cell.fill = _FILL_BAND
+        cell.alignment = _LEFT
+        ws.row_dimensions[row].height = 18
+        row += 1
+    return row
 
 
 def _title_band(ws, projet):
@@ -178,8 +190,7 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
         quart = day["quarts"][qname]
         if app._quart_total(quart) <= 0:
             continue
-        _banner(ws, row, _quart_info(qname, quart, exported_by))
-        row += 1
+        row = _quart_header(ws, row, qname, quart, exported_by)
         if quart.get("description"):
             ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
             ws.cell(row=row, column=1,
