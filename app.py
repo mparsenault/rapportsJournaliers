@@ -1333,12 +1333,11 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
         elif name in quart["equip_hours"]:
             del quart["equip_hours"][name]
 
-    # --- Prime + commentaire ---
-    cp, cc = st.columns([1, 3])
+    # --- Prime puis commentaire (empilés, pleine largeur) ---
     p_key = f"p_{jour}_{quart_name}_{name}"
     if p_key not in st.session_state:
         st.session_state[p_key] = list(quart["prime_codes"].get(name, []))
-    codes = cp.pills("Prime", PRIME_CODE_VALUES, selection_mode="multi",
+    codes = st.pills("Prime", PRIME_CODE_VALUES, selection_mode="multi",
                      format_func=_prime_code_label, key=p_key, on_change=_mark_dirty)
     if codes:
         quart["prime_codes"][name] = list(codes)
@@ -1346,7 +1345,7 @@ def _render_resource_card(jour, quart_name, quart, name, typ, all_activities):
         del quart["prime_codes"][name]
     c_key = f"c_{jour}_{quart_name}_{name}"
     st.session_state.setdefault(c_key, quart["commentaire_ligne"].get(name, ""))
-    com = cc.text_input("Commentaire", key=c_key, on_change=_mark_dirty)
+    com = st.text_input("Commentaire", key=c_key, on_change=_mark_dirty)
     if com.strip():
         quart["commentaire_ligne"][name] = com.strip()
     elif name in quart["commentaire_ligne"]:
