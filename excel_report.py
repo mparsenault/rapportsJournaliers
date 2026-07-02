@@ -41,39 +41,23 @@ _F_LEGEND = Font(name="Calibri", size=8, color="5F6E70")
 _RIGHT = Alignment(horizontal="right", vertical="center")
 
 
-def _white_logo():
-    """Version blanche du logo (icône + mot) rendue à la volée.
-
-    Le logo source (ondel.png) est teal + marine sur fond transparent. Posé tel
-    quel sur la bande teal du titre, l'icône teal disparaît (même couleur que le
-    fond) et seul le mot « ONDEL » marine ressort — d'où l'impression de logo
-    manquant. On repeint donc tous les pixels non transparents en blanc pour
-    obtenir un logo net sur le teal. Renvoie un BytesIO PNG (ou None si PIL/le
-    fichier manque : on retombe alors sur le logo d'origine)."""
-    try:
-        from io import BytesIO
-        from PIL import Image
-        im = Image.open(app.LOGO_PATH).convert("RGBA")
-        im.putdata([(255, 255, 255, a) for (_r, _g, _b, a) in im.getdata()])
-        buf = BytesIO()
-        im.save(buf, format="PNG")
-        buf.seek(0)
-        return buf
-    except Exception:
-        return None
+# Logo horizontal dédié à l'export (icône + ONDEL + signature), posé tel quel
+# sur une case blanche du bandeau (voir _title_band). 207×103 px -> ratio ~2:1.
+_EXPORT_LOGO = "ondel_export.png"
 
 
-def _add_logo(ws, height_px=50):
+def _add_logo(ws, height_px=48):
     import os
-    if not os.path.exists(app.LOGO_PATH):
+    path = os.path.join(app.BASE_DIR, _EXPORT_LOGO)
+    if not os.path.exists(path):
         return
     from openpyxl.drawing.image import Image as XLImage
     from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
     from openpyxl.drawing.xdr import XDRPositiveSize2D
     from openpyxl.utils.units import pixels_to_EMU
-    img = XLImage(_white_logo() or app.LOGO_PATH)
-    w = round(292 / 280 * height_px)
-    marker = AnchorMarker(col=0, colOff=pixels_to_EMU(12), row=0, rowOff=pixels_to_EMU(6))
+    img = XLImage(path)
+    w = round(207 / 103 * height_px)
+    marker = AnchorMarker(col=0, colOff=pixels_to_EMU(10), row=0, rowOff=pixels_to_EMU(8))
     img.anchor = OneCellAnchor(_from=marker,
                                ext=XDRPositiveSize2D(pixels_to_EMU(w), pixels_to_EMU(height_px)))
     ws.add_image(img)
@@ -165,8 +149,10 @@ def _quart_header(ws, row, qname, quart, exported_by="", show_weather=True):
 def _title_band(ws, projet):
     """Bandeau titre teal (lignes 1-2) : logo, 'Rapport journalier' + sous-titre,
     et à droite 'Projet <no>' + pagination. Renvoie la prochaine ligne libre."""
+    # Colonne A laissée blanche pour accueillir le logo couleur ; le teal ne
+    # couvre que le titre (B..) et la pagination (dernière colonne).
     for r in (1, 2):
-        for c in range(1, _NCOL + 1):
+        for c in range(2, _NCOL + 1):
             ws.cell(row=r, column=c).fill = _FILL_TITLE
     # Titre centré sur 2 lignes (le logo occupe la colonne A) ; projet + pagination à droite.
     ws.merge_cells(start_row=1, end_row=2, start_column=2, end_column=_NCOL - 1)
