@@ -31,7 +31,6 @@ _CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _LEFT = Alignment(horizontal="left", vertical="center")
 _HOURS_FMT = "0.00"
 
-_BAND_LT = "F5FBFC"          # bande claire secondaire
 _SIGN_LINE = "9FB0B2"        # ligne de signature
 _F_SUB = Font(name="Calibri", size=9, color="FFFFFF")
 _F_SIGN = Font(name="Calibri", size=9, color="5F6E70")
