@@ -136,6 +136,16 @@ def test_build_week_workbook_une_feuille_par_jour_rempli():
     assert wb.sheetnames == ["Lundi", "Mercredi"]
 
 
+def test_build_week_workbook_feuilles_modernisees():
+    jours = {j: _day_vide() for j in app.JOURS}
+    jours["Lundi"] = _day_rempli()
+    buf = excel_report.build_week_workbook(_projet(), jours, app.JOURS, "")
+    txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])
+    assert "Rapport journalier" in txt
+    assert "Total de la journée" in txt
+    assert "Revu par" in txt
+
+
 def test_build_day_workbook_total_de_la_journee():
     q = app._empty_quart()
     q["personnel"] = ["A", "B"]
