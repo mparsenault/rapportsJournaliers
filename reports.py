@@ -11,7 +11,7 @@ Schéma normalisé, clé métier = (id_project, week_start) :
     report_quarts         : un quart d'un jour (Jour / Soir / Nuit)
     report_quart_resources: personnel ('P') + équipements ('E') du quart
     report_hours          : 1 ligne par ressource × activité × quart (grain fin)
-    report_lines          : prime + commentaire par ressource × quart
+    report_lines          : prime_codes + commentaire par ressource × quart
 
 IMPORTANT : aucune FK vers `projects`. sync_projects.py fait `delete from
 projects` à chaque sync ; une FK ON DELETE CASCADE effacerait les rapports.

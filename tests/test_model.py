@@ -122,6 +122,14 @@ def test_legacy_day_maps_labels_to_keys():
     assert camion["h0"] == 8.0
 
 
+def test_legacy_day_joins_multiple_prime_codes():
+    q = _sample_quart()
+    q["prime_codes"] = {"Mathis": ["H", "R"]}
+    leg = app._legacy_day(q)
+    mathis = leg["pers"][leg["pers"]["Nom"] == "Mathis"].iloc[0]
+    assert mathis["Prime"] == "H, R"
+
+
 def test_week_start_snaps_to_sunday():
     import datetime
     # 2026-06-18 est un jeudi -> dimanche de la semaine = 2026-06-14
