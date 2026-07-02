@@ -23,6 +23,8 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 _F_TITLE = Font(name="Calibri", size=18, bold=True, color="FFFFFF")
 _F_HEAD = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
 _F_LABEL = Font(name="Calibri", size=10, bold=True, color=_TEAL_DK)
+_F_EMP = Font(name="Calibri", size=11, bold=True, color=_TEAL_DK)   # nom d'employé (11)
+_F_ACT = Font(name="Calibri", size=10)                             # ligne d'activité (10)
 _F_TOTAL = Font(name="Calibri", size=10, bold=True, color="0E2A2E")
 _FILL_TITLE = PatternFill("solid", fgColor=_TEAL)
 _FILL_HEAD = PatternFill("solid", fgColor=_TEAL_DK)
@@ -69,13 +71,15 @@ def _safe_title(name):
     return "".join(c for c in str(name) if c not in bad)[:31] or "Feuille"
 
 
-def _write_row(ws, row, values, *, bold=False, fill=None, fmt=None):
+def _write_row(ws, row, values, *, bold=False, fill=None, fmt=None, font=None):
     for col, val in enumerate(values, start=1):
         cell = ws.cell(row=row, column=col, value=val)
         cell.border = _BORDER
         cell.alignment = _LEFT_WRAP if col == 1 else _CENTER
         if bold:
             cell.font = _F_HEAD if fill is _FILL_HEAD else _F_TOTAL
+        elif font is not None:
+            cell.font = font   # police appliquée à toute la ligne
         if fill is not None:
             cell.fill = fill
         if fmt and isinstance(val, (int, float)):
@@ -389,7 +393,7 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
         # Ligne du nom (fusionnée sur toute la largeur).
         ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=ncol)
         nc = ws.cell(row=row, column=1, value=name)
-        nc.font = _F_LABEL
+        nc.font = _F_EMP
         nc.fill = _FILL_BAND
         nc.alignment = _LEFT
         row += 1
@@ -410,14 +414,14 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
                     ts = dur if typ == "TS" else 0.0
                     lbl = ("  " + label) if j == 0 else None
                     _write_row(ws, row, [lbl, f"{deb} – {fin}", tr, ts]
-                               + [None] * extra, fmt=_HOURS_FMT)
+                               + [None] * extra, fmt=_HOURS_FMT, font=_F_ACT)
                     row += 1
             else:
                 # Mode direct : une seule ligne avec les heures.
                 tr = float(norm.get("TR") or 0)
                 ts = float(norm.get("TS") or 0)
                 _write_row(ws, row, ["  " + label, None, tr, ts]
-                           + [None] * extra, fmt=_HOURS_FMT)
+                           + [None] * extra, fmt=_HOURS_FMT, font=_F_ACT)
                 row += 1
         detail_end = row - 1   # dernière ligne de détail
 

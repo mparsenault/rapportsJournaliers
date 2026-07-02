@@ -116,6 +116,22 @@ def test_build_day_workbook_separateur_entre_employes():
     assert ws.cell(r_bob - 1, 1).value in (None, "")   # ligne vide
 
 
+def test_build_day_workbook_tailles_police_nom_et_activite():
+    # Nom d'employé en 11, ligne d'activité en 10 (toute la ligne).
+    q = app._empty_quart()
+    q["personnel"] = ["Bob"]
+    q["heures"] = {"Bob": {"Excavation": {"TR": 8.0, "TS": 0.0}}}
+    day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
+    ws = openpyxl.load_workbook(
+        excel_report.build_day_workbook(_projet(), "Lundi", day, ""))["Lundi"]
+    r_nom = next(r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value == "Bob")
+    assert ws.cell(r_nom, 1).font.size == 11
+    r_act = next(r for r in range(1, ws.max_row + 1)
+                 if str(ws.cell(r, 1).value or "").strip() == "Excavation")
+    assert ws.cell(r_act, 1).font.size == 10       # col A
+    assert ws.cell(r_act, 3).font.size == 10       # toute la ligne (ex. col TR)
+
+
 def test_build_day_workbook_sans_quadrillage():
     ws = openpyxl.load_workbook(
         excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), ""))["Lundi"]
