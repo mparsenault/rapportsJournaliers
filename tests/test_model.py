@@ -30,7 +30,7 @@ def _sample_quart():
     q["heures"] = {"Mathis": {"Excavation": {"TR": 4.0, "TS": 0.0},
                               "P-77": {"TR": 2.0, "TS": 1.0}},
                    "Camion v1892": {"Excavation": {"TR": 8.0, "TS": 0.0}}}
-    q["prime"] = {"Mathis": 2.0}
+    q["prime_codes"] = {"Mathis": ["H"]}
     q["commentaire_ligne"] = {"Mathis": "test"}
     q["equip_codes"] = {"Mathis": ["C", "N"]}
     q["equip_hours"] = {"Mathis": 10.0}
@@ -116,7 +116,7 @@ def test_legacy_day_maps_labels_to_keys():
     assert mathis["h1"] == 3.0          # P-77 : TR+TS = 2+1
     assert mathis["TR"] == 6.0 and mathis["TS"] == 1.0
     assert mathis["Hrs Éq."] == 10.0 and mathis["Code Éq."] == "C, N"
-    assert mathis["Prime"] == 2.0 and mathis["Commentaire"] == "test"
+    assert mathis["Prime"] == "H" and mathis["Commentaire"] == "test"
     assert list(equip["Véhicule"]) == ["Camion v1892"]
     camion = equip[equip["Véhicule"] == "Camion v1892"].iloc[0]
     assert camion["h0"] == 8.0
