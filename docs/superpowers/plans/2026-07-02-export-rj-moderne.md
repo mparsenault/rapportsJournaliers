@@ -192,8 +192,9 @@ git commit -m "feat(export): bandeau titre teal + bloc méta modernisés"
 - Test: `tests/test_excel_report.py`
 
 **Interfaces:**
-- Consumes : `_banner`, `_quart_info`, `_FILL_BAND`, `_F_LABEL`, `_LEFT`, `_NCOL`.
+- Consumes : `_banner`, `_FILL_BAND`, `_F_LABEL`, `_LEFT`, `_NCOL`.
 - Produces : `_quart_header(ws, row, qname, quart, exported_by="") -> int`.
+- Removes : `_quart_info` (son unique appelant est remplacé ; devient du code mort).
 
 - [ ] **Step 1 : Écrire le test du bloc température/conditions**
 
@@ -263,18 +264,7 @@ par :
         row = _quart_header(ws, row, qname, quart, exported_by)
 ```
 
-Simplifier `_quart_info` pour qu'il ne produise plus que la partie responsable (la température/les conditions passent dans `_quart_header`). Remplacer le corps de `_quart_info` par :
-
-```python
-def _quart_info(qname, quart, exported_by=""):
-    parts = [f"Quart {qname}"]
-    resp = quart.get("responsable") or exported_by
-    if resp:
-        parts.append(f"Resp. : {resp}")
-    return "    ·    ".join(parts)
-```
-
-(Conservé pour compatibilité/appels éventuels ; `_quart_header` fabrique désormais son propre libellé.)
+Puis **supprimer entièrement la fonction `_quart_info`** (sa définition ligne ~100) : son unique appelant vient d'être remplacé, et `_quart_header` fabrique son propre libellé (responsable inclus). La laisser serait du code mort.
 
 - [ ] **Step 5 : Lancer la suite complète**
 
