@@ -136,6 +136,21 @@ def test_build_week_workbook_une_feuille_par_jour_rempli():
     assert wb.sheetnames == ["Lundi", "Mercredi"]
 
 
+def test_build_day_workbook_total_de_la_journee():
+    q = app._empty_quart()
+    q["personnel"] = ["A", "B"]
+    q["heures"] = {"A": {"Excavation": {"TR": 4.0, "TS": 0.0}},
+                   "B": {"Excavation": {"TR": 4.0, "TS": 1.0}}}
+    day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
+    ws = openpyxl.load_workbook(
+        excel_report.build_day_workbook(_projet(), "Lundi", day, ""))["Lundi"]
+    # Trouver la ligne « Total de la journée » et vérifier ses totaux TR/TS.
+    row = next(r for r in range(1, ws.max_row + 1)
+               if ws.cell(r, 1).value == "Total de la journée")
+    assert ws.cell(row, 3).value == 8.0    # TR : 4 + 4
+    assert ws.cell(row, 4).value == 1.0    # TS : 0 + 1
+
+
 def test_build_day_email_renvoie_sujet_nom_et_bytes():
     subject, html, filename, data = excel_report.build_day_email(
         _projet(), "Lundi", _day_rempli(), "Test User")

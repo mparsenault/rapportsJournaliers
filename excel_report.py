@@ -178,6 +178,30 @@ def _stamp(ws, exported_by):
     cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
 
 
+def _quart_hour_totals(quart):
+    """Totaux (TR, TS, heures d'équipement) d'un quart, dérivés des heures saisies."""
+    tr = ts = 0.0
+    for acts in (quart.get("heures") or {}).values():
+        for entry in (acts or {}).values():
+            norm = app._norm_entry(entry)
+            tr += float(norm.get("TR") or 0)
+            ts += float(norm.get("TS") or 0)
+    eq = sum(float(v) for v in (quart.get("equip_hours") or {}).values() if v is not None)
+    return tr, ts, eq
+
+
+def _day_total_row(ws, row, tr, ts, eq):
+    """Ligne 'Total de la journée' (gras, filet teal au-dessus). Prochaine ligne."""
+    row += 1  # espace avant le total
+    vals = ["Total de la journée", None, tr, ts, (eq or None)] + [None] * (_NCOL - 5)
+    _write_row(ws, row, vals, bold=True, fmt=_HOURS_FMT)
+    top = Side(style="medium", color=_TEAL)
+    for c in range(1, _NCOL + 1):
+        ws.cell(row=row, column=c).border = Border(
+            left=_THIN, right=_THIN, top=top, bottom=_THIN)
+    return row + 1
+
+
 def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     """Écrit le rapport d'une journée dans la feuille `ws`."""
     ws.title = _safe_title(jour_name)
@@ -186,6 +210,7 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     row = _title_band(ws, projet)
     row = _meta_block(ws, row, projet, jour_name, day)
 
+    day_tr = day_ts = day_eq = 0.0
     for qname in app._day_quart_names(day):
         quart = day["quarts"][qname]
         if app._quart_total(quart) <= 0:
@@ -206,6 +231,13 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
                                         _EQUIP_COLS, with_equip=False)
             row += 1
         row += 1
+
+        tr, ts, eq = _quart_hour_totals(quart)
+        day_tr += tr
+        day_ts += ts
+        day_eq += eq
+
+    row = _day_total_row(ws, row, day_tr, day_ts, day_eq)
 
     _stamp(ws, exported_by)
 
