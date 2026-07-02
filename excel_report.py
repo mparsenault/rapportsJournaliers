@@ -20,7 +20,7 @@ _BAND = "EEF8F9"
 _GREY = "D9E2E4"
 _THIN = Side(style="thin", color=_GREY)
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
-_F_TITLE = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
+_F_TITLE = Font(name="Calibri", size=18, bold=True, color="FFFFFF")
 _F_HEAD = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
 _F_LABEL = Font(name="Calibri", size=10, bold=True, color=_TEAL_DK)
 _F_TOTAL = Font(name="Calibri", size=10, bold=True, color="0E2A2E")
@@ -30,6 +30,12 @@ _FILL_BAND = PatternFill("solid", fgColor=_BAND)
 _CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _LEFT = Alignment(horizontal="left", vertical="center")
 _HOURS_FMT = "0.00"
+
+_SIGN_LINE = "9FB0B2"        # ligne de signature
+_F_SUB = Font(name="Calibri", size=9, color="FFFFFF")
+_F_SIGN = Font(name="Calibri", size=9, color="5F6E70")
+_F_LEGEND = Font(name="Calibri", size=8, color="5F6E70")
+_RIGHT = Alignment(horizontal="right", vertical="center")
 
 
 def _add_logo(ws, height_px=58):
@@ -68,7 +74,7 @@ def _write_row(ws, row, values, *, bold=False, fill=None, fmt=None):
 
 
 # Colonnes fixes (regroupement par ressource : activités + plages en sous-lignes).
-_PERS_COLS = ["Nom / Activité", "Plage", "TR", "TS", "Hrs Éq.", "Code Éq.", "Prime", "Commentaire"]
+_PERS_COLS = ["Nom / Activité", "Plage", "TR", "TS", "Hrs Éq.", "Code Éq.", "Prime", "Travaux effectués"]
 _EQUIP_COLS = ["Véhicule / Activité", "Plage", "TR", "TS", "Prime", "Commentaire"]
 _NCOL = len(_PERS_COLS)  # largeur de la feuille (le tableau personnel est le plus large)
 
@@ -78,7 +84,7 @@ def _col_width(name):
     return {
         "Nom / Activité": 40, "Véhicule / Activité": 40, "Plage": 14,
         "TR": 6.5, "TS": 6.5, "Hrs Éq.": 9, "Code Éq.": 13, "Prime": 9,
-        "Commentaire": 30,
+        "Commentaire": 30, "Travaux effectués": 30,
     }.get(name, 12)
 
 
@@ -97,52 +103,160 @@ def _banner(ws, row, text):
     ws.row_dimensions[row].height = 20
 
 
-def _quart_info(qname, quart, exported_by=""):
-    parts = [f"Quart {qname}"]
-    # Le responsable est verrouillé sur la personne connectée ; il n'est estampillé
-    # dans le quart qu'à l'enregistrement. On retombe sur l'exportateur (même
-    # personne) pour qu'il apparaisse même si le rapport n'a pas été resauvegardé.
+def _quart_header(ws, row, qname, quart, exported_by=""):
+    """Bandeau de quart (teal foncé) : 'Quart X · Resp. Y', puis une sous-ligne
+    Température AM/PM + Conditions (bande claire). Renvoie la prochaine ligne."""
     resp = quart.get("responsable") or exported_by
+    label = f"Quart {qname}"
     if resp:
-        parts.append(f"Resp. : {resp}")
+        label += f"    ·    Resp. : {resp}"
+    _banner(ws, row, label)
+    row += 1
+
     tam, tpm = quart.get("temp_am"), quart.get("temp_pm")
+    conds = ", ".join(quart.get("conditions") or [])
+    parts = []
     if tam is not None or tpm is not None:
         a = tam if tam is not None else "—"
         p = tpm if tpm is not None else "—"
-        parts.append(f"Temp. AM {a} / PM {p}")
-    if quart.get("conditions"):
-        parts.append(", ".join(quart["conditions"]))
-    return "    ·    ".join(parts)
+        parts.append(f"Température : AM {a} / PM {p}")
+    if conds:
+        parts.append(f"Conditions : {conds}")
+    if parts:
+        ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
+        cell = ws.cell(row=row, column=1, value="    ·    ".join(parts))
+        cell.font = _F_LABEL
+        cell.fill = _FILL_BAND
+        cell.alignment = _LEFT
+        ws.row_dimensions[row].height = 18
+        row += 1
+    return row
+
+
+def _title_band(ws, projet):
+    """Bandeau titre teal (lignes 1-2) : logo, 'Rapport journalier' + sous-titre,
+    et à droite 'Projet <no>' + pagination. Renvoie la prochaine ligne libre."""
+    for r in (1, 2):
+        for c in range(1, _NCOL + 1):
+            ws.cell(row=r, column=c).fill = _FILL_TITLE
+    ws.merge_cells(start_row=1, end_row=1, start_column=2, end_column=_NCOL - 1)
+    t = ws.cell(row=1, column=2, value="Rapport journalier")
+    t.font = _F_TITLE
+    t.alignment = _LEFT
+    sub = ws.cell(row=2, column=2, value="Ondel")
+    sub.font = _F_SUB
+    sub.alignment = _LEFT
+    p = ws.cell(row=1, column=_NCOL, value=f"Projet {projet.get('no') or ''}".strip())
+    p.font = _F_SUB
+    p.alignment = _RIGHT
+    pg = ws.cell(row=2, column=_NCOL, value="Page 1 de 1")
+    pg.font = _F_SUB
+    pg.alignment = _RIGHT
+    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[2].height = 16
+    _add_logo(ws)
+    return 4  # ligne 3 laissée vide, méta démarre en 4
+
+
+def _meta_block(ws, row, projet, jour_name, day):
+    """Bloc méta jour : Date, Adresse. Renvoie la prochaine ligne libre."""
+    d = day.get("date")
+    date_txt = app.fr_date_long(d) if d else ""
+    ws.cell(row=row, column=1, value="Date :").font = _F_LABEL
+    ws.cell(row=row, column=2, value=f"{jour_name} {date_txt}".strip())
+    row += 1
+    ws.cell(row=row, column=1, value="Adresse :").font = _F_LABEL
+    ws.cell(row=row, column=2, value=projet.get("adresse") or "")
+    return row + 2  # une ligne vide avant le premier quart
+
+
+def _stamp(ws, exported_by):
+    """Estampille discrète en pied de feuille."""
+    last = ws.max_row + 2
+    cell = ws.cell(row=last, column=1, value=f"Exporté par {exported_by or '—'}")
+    cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
+
+
+def _quart_hour_totals(quart):
+    """Totaux (TR, TS, heures d'équipement) d'un quart, dérivés des heures saisies."""
+    tr = ts = 0.0
+    for acts in (quart.get("heures") or {}).values():
+        for entry in (acts or {}).values():
+            norm = app._norm_entry(entry)
+            tr += float(norm.get("TR") or 0)
+            ts += float(norm.get("TS") or 0)
+    eq = sum(float(v) for v in (quart.get("equip_hours") or {}).values() if v is not None)
+    return tr, ts, eq
+
+
+def _day_total_row(ws, row, tr, ts, eq):
+    """Ligne 'Total de la journée' (gras, filet teal au-dessus). Prochaine ligne."""
+    row += 1  # espace avant le total
+    vals = ["Total de la journée", None, tr, ts, (eq or None)] + [None] * (_NCOL - 5)
+    _write_row(ws, row, vals, bold=True, fmt=_HOURS_FMT)
+    top = Side(style="medium", color=_TEAL)
+    for c in range(1, _NCOL + 1):
+        ws.cell(row=row, column=c).border = Border(
+            left=_THIN, right=_THIN, top=top, bottom=_THIN)
+    return row + 1
+
+
+_EQUIP_LEGEND = ("Codes d'équipement :  BT chariot · C camion · D détecteur · "
+                 "É échafaudage · G grue · N nacelle")
+
+
+def _equip_legend(ws, row):
+    """Légende des codes d'équipement (petite police grise). Prochaine ligne."""
+    row += 1
+    ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
+    cell = ws.cell(row=row, column=1, value=_EQUIP_LEGEND)
+    cell.font = _F_LEGEND
+    cell.alignment = _LEFT
+    return row + 1
+
+
+def _comments_block(ws, row):
+    """Libellé 'Commentaires / plaintes / suggestions :' + cadre vide (3 lignes)."""
+    row += 1
+    ws.cell(row=row, column=1,
+            value="Commentaires / plaintes / suggestions :").font = _F_LABEL
+    row += 1
+    ws.merge_cells(start_row=row, end_row=row + 2, start_column=1, end_column=_NCOL)
+    dash = Side(style="dashed", color=_GREY)
+    box = Border(left=dash, right=dash, top=dash, bottom=dash)
+    for r in range(row, row + 3):
+        for c in range(1, _NCOL + 1):
+            ws.cell(row=r, column=c).border = box
+    return row + 3
+
+
+def _signature_block(ws, row):
+    """Deux blocs de signature vides : 'Revu par' et 'Approuvé par'."""
+    row += 2  # espace au-dessus des lignes de signature
+    half = _NCOL // 2
+    line = Border(bottom=Side(style="thin", color=_SIGN_LINE))
+    for c in range(1, _NCOL + 1):
+        ws.cell(row=row, column=c).border = line
+    row += 1
+    ws.cell(row=row, column=1, value="Revu par").font = _F_SIGN
+    ws.cell(row=row, column=half + 1, value="Approuvé par").font = _F_SIGN
+    return row + 1
 
 
 def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     """Écrit le rapport d'une journée dans la feuille `ws`."""
     ws.title = _safe_title(jour_name)
-    _add_logo(ws)
     _apply_widths(ws, _PERS_COLS)
 
-    ws.merge_cells(start_row=1, end_row=1, start_column=2, end_column=_NCOL)
-    t = ws.cell(row=1, column=2, value="RAPPORT JOURNALIER — ONDEL")
-    t.font = _F_TITLE
-    t.fill = _FILL_TITLE
-    ws.row_dimensions[1].height = 38
+    row = _title_band(ws, projet)
+    row = _meta_block(ws, row, projet, jour_name, day)
 
-    d = day.get("date")
-    date_txt = app.fr_date_long(d) if d else ""
-    ws.cell(row=3, column=1, value="No Projet :").font = _F_LABEL
-    ws.cell(row=3, column=2, value=str(projet.get("no") or ""))
-    ws.cell(row=4, column=1, value="Date :").font = _F_LABEL
-    ws.cell(row=4, column=2, value=f"{jour_name} {date_txt}".strip())
-    ws.cell(row=5, column=1, value="Adresse :").font = _F_LABEL
-    ws.cell(row=5, column=2, value=projet.get("adresse") or "")
-
-    row = 7
+    day_tr = day_ts = day_eq = 0.0
     for qname in app._day_quart_names(day):
         quart = day["quarts"][qname]
         if app._quart_total(quart) <= 0:
             continue
-        _banner(ws, row, _quart_info(qname, quart, exported_by))
-        row += 1
+        row = _quart_header(ws, row, qname, quart, exported_by)
         if quart.get("description"):
             ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
             ws.cell(row=row, column=1,
@@ -159,10 +273,18 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
             row += 1
         row += 1
 
-    # Estampille (dernière écriture)
-    last = ws.max_row + 2
-    cell = ws.cell(row=last, column=1, value=f"Exporté par {exported_by or '—'}")
-    cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
+        tr, ts, eq = _quart_hour_totals(quart)
+        day_tr += tr
+        day_ts += ts
+        day_eq += eq
+
+    row = _day_total_row(ws, row, day_tr, day_ts, day_eq)
+
+    row = _equip_legend(ws, row)
+    row = _comments_block(ws, row)
+    row = _signature_block(ws, row)
+
+    _stamp(ws, exported_by)
 
 
 def _write_resource_table(ws, row, quart, names, cols, *, with_equip):

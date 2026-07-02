@@ -37,8 +37,9 @@ def test_build_day_workbook_une_feuille_et_entete():
     wb = openpyxl.load_workbook(buf)
     assert wb.sheetnames == ["Lundi"]
     txt = _all_text(wb["Lundi"])
-    assert "RAPPORT JOURNALIER — ONDEL" in txt
-    assert "12345" in txt                      # No Projet
+    assert "Rapport journalier" in txt
+    assert "12345" in txt                      # No Projet (bandeau titre)
+    assert "123 rue Principale" in txt         # adresse (bloc méta)
     assert "Mathis Lajeunesse" in txt          # ligne de personnel
     assert "Exporté par Test User" in txt      # estampille
 
@@ -77,6 +78,20 @@ def test_build_day_workbook_responsable_repli_sur_exportateur():
     assert "Resp. : Marie-Pier Arsenault" in txt
 
 
+def test_build_day_workbook_temperature_et_conditions():
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
+    txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])
+    assert "Température" in txt
+    assert "Ensoleillé" in txt        # condition saisie (_day_rempli)
+    assert "12" in txt                # temp_am = 12.0
+
+
+def test_build_day_workbook_entete_travaux_effectues():
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
+    txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])
+    assert "Travaux effectués" in txt
+
+
 def test_build_day_workbook_plages_horaires_par_activite():
     # Une activité en mode « plage » affiche ses créneaux début–fin et leur type.
     q = app._empty_quart()
@@ -108,7 +123,7 @@ def test_build_day_workbook_jour_vide_sans_personnel():
     buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_vide(), "")
     wb = openpyxl.load_workbook(buf)
     txt = _all_text(wb["Lundi"])
-    assert "RAPPORT JOURNALIER — ONDEL" in txt
+    assert "Rapport journalier" in txt
     assert "Mathis" not in txt
 
 
@@ -119,6 +134,40 @@ def test_build_week_workbook_une_feuille_par_jour_rempli():
     buf = excel_report.build_week_workbook(_projet(), jours, app.JOURS, "")
     wb = openpyxl.load_workbook(buf)
     assert wb.sheetnames == ["Lundi", "Mercredi"]
+
+
+def test_build_week_workbook_feuilles_modernisees():
+    jours = {j: _day_vide() for j in app.JOURS}
+    jours["Lundi"] = _day_rempli()
+    buf = excel_report.build_week_workbook(_projet(), jours, app.JOURS, "")
+    txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])
+    assert "Rapport journalier" in txt
+    assert "Total de la journée" in txt
+    assert "Revu par" in txt
+
+
+def test_build_day_workbook_total_de_la_journee():
+    q = app._empty_quart()
+    q["personnel"] = ["A", "B"]
+    q["heures"] = {"A": {"Excavation": {"TR": 4.0, "TS": 0.0}},
+                   "B": {"Excavation": {"TR": 4.0, "TS": 1.0}}}
+    day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
+    ws = openpyxl.load_workbook(
+        excel_report.build_day_workbook(_projet(), "Lundi", day, ""))["Lundi"]
+    # Trouver la ligne « Total de la journée » et vérifier ses totaux TR/TS.
+    row = next(r for r in range(1, ws.max_row + 1)
+               if ws.cell(r, 1).value == "Total de la journée")
+    assert ws.cell(row, 3).value == 8.0    # TR : 4 + 4
+    assert ws.cell(row, 4).value == 1.0    # TS : 0 + 1
+
+
+def test_build_day_workbook_bas_de_page():
+    buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
+    txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])
+    assert "Codes d'équipement" in txt
+    assert "Commentaires / plaintes / suggestions" in txt
+    assert "Revu par" in txt
+    assert "Approuvé par" in txt
 
 
 def test_build_day_email_renvoie_sujet_nom_et_bytes():
