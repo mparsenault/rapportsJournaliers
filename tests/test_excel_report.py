@@ -86,6 +86,19 @@ def test_build_day_workbook_temperature_et_conditions():
     assert "12" in txt                # temp_am = 12.0
 
 
+def test_build_day_workbook_meteo_dans_panneau_entete():
+    # La météo va dans le panneau d'en-tête (haut à droite), pas sous le quart :
+    # le libellé « Température ext. » est celui du panneau, en lignes 4-5, cols E+.
+    ws = openpyxl.load_workbook(
+        excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), ""))["Lundi"]
+    positions = [(c.row, c.column) for row in ws.iter_rows() for c in row
+                 if c.value == "Température ext."]
+    assert positions, "libellé du panneau météo absent"
+    r, col = positions[0]
+    assert r in (4, 5)                 # zone méta (haut de feuille)
+    assert col >= 5                    # colonne E ou plus (côté droit)
+
+
 def test_build_day_workbook_entete_travaux_effectues():
     buf = excel_report.build_day_workbook(_projet(), "Lundi", _day_rempli(), "")
     txt = _all_text(openpyxl.load_workbook(buf)["Lundi"])

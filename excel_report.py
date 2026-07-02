@@ -38,7 +38,29 @@ _F_LEGEND = Font(name="Calibri", size=8, color="5F6E70")
 _RIGHT = Alignment(horizontal="right", vertical="center")
 
 
-def _add_logo(ws, height_px=58):
+def _white_logo():
+    """Version blanche du logo (icône + mot) rendue à la volée.
+
+    Le logo source (ondel.png) est teal + marine sur fond transparent. Posé tel
+    quel sur la bande teal du titre, l'icône teal disparaît (même couleur que le
+    fond) et seul le mot « ONDEL » marine ressort — d'où l'impression de logo
+    manquant. On repeint donc tous les pixels non transparents en blanc pour
+    obtenir un logo net sur le teal. Renvoie un BytesIO PNG (ou None si PIL/le
+    fichier manque : on retombe alors sur le logo d'origine)."""
+    try:
+        from io import BytesIO
+        from PIL import Image
+        im = Image.open(app.LOGO_PATH).convert("RGBA")
+        im.putdata([(255, 255, 255, a) for (_r, _g, _b, a) in im.getdata()])
+        buf = BytesIO()
+        im.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
+
+
+def _add_logo(ws, height_px=50):
     import os
     if not os.path.exists(app.LOGO_PATH):
         return
@@ -46,9 +68,9 @@ def _add_logo(ws, height_px=58):
     from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
     from openpyxl.drawing.xdr import XDRPositiveSize2D
     from openpyxl.utils.units import pixels_to_EMU
-    img = XLImage(app.LOGO_PATH)
+    img = XLImage(_white_logo() or app.LOGO_PATH)
     w = round(292 / 280 * height_px)
-    marker = AnchorMarker(col=0, colOff=pixels_to_EMU(12), row=0, rowOff=pixels_to_EMU(8))
+    marker = AnchorMarker(col=0, colOff=pixels_to_EMU(12), row=0, rowOff=pixels_to_EMU(6))
     img.anchor = OneCellAnchor(_from=marker,
                                ext=XDRPositiveSize2D(pixels_to_EMU(w), pixels_to_EMU(height_px)))
     ws.add_image(img)
@@ -103,15 +125,19 @@ def _banner(ws, row, text):
     ws.row_dimensions[row].height = 20
 
 
-def _quart_header(ws, row, qname, quart, exported_by=""):
-    """Bandeau de quart (teal foncé) : 'Quart X · Resp. Y', puis une sous-ligne
-    Température AM/PM + Conditions (bande claire). Renvoie la prochaine ligne."""
+def _quart_header(ws, row, qname, quart, exported_by="", show_weather=True):
+    """Bandeau de quart (teal foncé) : 'Quart X · Resp. Y'. Renvoie la prochaine
+    ligne. La météo du quart va normalement dans le panneau d'en-tête
+    (`_weather_panel`) ; on ne réaffiche une sous-ligne Température/Conditions
+    ici que pour les quarts secondaires (`show_weather=True`)."""
     resp = quart.get("responsable") or exported_by
     label = f"Quart {qname}"
     if resp:
         label += f"    ·    Resp. : {resp}"
     _banner(ws, row, label)
     row += 1
+    if not show_weather:
+        return row
 
     tam, tpm = quart.get("temp_am"), quart.get("temp_pm")
     conds = ", ".join(quart.get("conditions") or [])
@@ -159,15 +185,61 @@ def _title_band(ws, projet):
 
 
 def _meta_block(ws, row, projet, jour_name, day):
-    """Bloc méta jour : Date, Adresse. Renvoie la prochaine ligne libre."""
+    """Bloc méta jour (gauche) : Date, Adresse. Valeurs fusionnées sur B:D pour
+    ne pas empiéter sur le panneau météo (E:H). Renvoie la prochaine ligne."""
     d = day.get("date")
     date_txt = app.fr_date_long(d) if d else ""
     ws.cell(row=row, column=1, value="Date :").font = _F_LABEL
+    ws.merge_cells(start_row=row, end_row=row, start_column=2, end_column=4)
     ws.cell(row=row, column=2, value=f"{jour_name} {date_txt}".strip())
     row += 1
     ws.cell(row=row, column=1, value="Adresse :").font = _F_LABEL
+    ws.merge_cells(start_row=row, end_row=row, start_column=2, end_column=4)
     ws.cell(row=row, column=2, value=projet.get("adresse") or "")
     return row + 2  # une ligne vide avant le premier quart
+
+
+def _primary_quart(day):
+    """Premier quart rempli (ordre Jour/Soir/Nuit) — sa météo alimente le
+    panneau d'en-tête. None si aucun quart rempli."""
+    for qname in app._day_quart_names(day):
+        q = day["quarts"][qname]
+        if app._quart_total(q) > 0:
+            return q
+    return None
+
+
+def _weather_panel(ws, top_row, quart):
+    """Panneau Température/Conditions en haut à droite (cols E:H, 2 lignes),
+    à la manière du formulaire officiel. Rien si aucune donnée météo."""
+    if quart is None:
+        return
+    tam, tpm = quart.get("temp_am"), quart.get("temp_pm")
+    conds = ", ".join(quart.get("conditions") or [])
+    if tam is None and tpm is None and not conds:
+        return
+    lab_c, val_c = _NCOL - 3, _NCOL - 1          # E:F = libellé, G:H = valeur
+    a = tam if tam is not None else "—"
+    p = tpm if tpm is not None else "—"
+    for i, (lab, val) in enumerate([("Température ext.", f"AM {a}  /  PM {p}"),
+                                    ("Conditions", conds or "—")]):
+        r = top_row + i
+        ws.merge_cells(start_row=r, end_row=r, start_column=lab_c, end_column=val_c - 1)
+        lc = ws.cell(row=r, column=lab_c, value=lab)
+        lc.font = _F_LABEL
+        lc.alignment = _LEFT
+        ws.merge_cells(start_row=r, end_row=r, start_column=val_c, end_column=_NCOL)
+        ws.cell(row=r, column=val_c, value=val).alignment = _LEFT
+    edge = Side(style="thin", color=_TEAL_DK)
+    for r in range(top_row, top_row + 2):
+        for c in range(lab_c, _NCOL + 1):
+            cell = ws.cell(row=r, column=c)
+            cell.fill = _FILL_BAND
+            cell.border = Border(
+                left=edge if c == lab_c else Side(),
+                right=edge if c == _NCOL else Side(),
+                top=edge if r == top_row else Side(),
+                bottom=edge if r == top_row + 1 else Side())
 
 
 def _stamp(ws, exported_by):
@@ -249,14 +321,18 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     _apply_widths(ws, _PERS_COLS)
 
     row = _title_band(ws, projet)
+    meta_top = row
     row = _meta_block(ws, row, projet, jour_name, day)
+    primary = _primary_quart(day)
+    _weather_panel(ws, meta_top, primary)
 
     day_tr = day_ts = day_eq = 0.0
     for qname in app._day_quart_names(day):
         quart = day["quarts"][qname]
         if app._quart_total(quart) <= 0:
             continue
-        row = _quart_header(ws, row, qname, quart, exported_by)
+        row = _quart_header(ws, row, qname, quart, exported_by,
+                            show_weather=(quart is not primary))
         if quart.get("description"):
             ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=_NCOL)
             ws.cell(row=row, column=1,
