@@ -101,7 +101,7 @@ def test_build_day_workbook_meteo_dans_panneau_entete():
 
 
 def test_build_day_workbook_separateur_entre_employes():
-    # Chaque bande de nom d'employé porte un filet teal au-dessus (séparation).
+    # Ligne vide (hauteur 6, sans fond) juste avant chaque employé sauf le premier.
     q = app._empty_quart()
     q["personnel"] = ["Alice", "Bob"]
     q["heures"] = {"Alice": {"Exc": {"TR": 8.0, "TS": 0.0}},
@@ -109,10 +109,11 @@ def test_build_day_workbook_separateur_entre_employes():
     day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
     ws = openpyxl.load_workbook(
         excel_report.build_day_workbook(_projet(), "Lundi", day, ""))["Lundi"]
-    for name in ("Alice", "Bob"):
-        r = next(row for row in range(1, ws.max_row + 1)
-                 if ws.cell(row, 1).value == name)
-        assert ws.cell(r, 1).border.top.style == "medium"
+    r_bob = next(row for row in range(1, ws.max_row + 1)
+                 if ws.cell(row, 1).value == "Bob")
+    spacer = ws.row_dimensions[r_bob - 1]
+    assert spacer.height == 6
+    assert ws.cell(r_bob - 1, 1).value in (None, "")   # ligne vide
 
 
 def test_build_day_workbook_sans_quadrillage():

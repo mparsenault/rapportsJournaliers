@@ -370,18 +370,17 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
     eqh = quart.get("equip_hours") or {}
     eqc = quart.get("equip_codes") or {}
 
-    sep = Side(style="medium", color=_TEAL)     # séparateur entre employés
-    for name in names:
+    for i, name in enumerate(names):
+        # Ligne vide (hauteur 6, sans fond) entre employés — séparation visuelle.
+        if i > 0:
+            ws.row_dimensions[row].height = 6
+            row += 1
         acts = heures.get(name) or {}
-        # Ligne du nom (fusionnée) + filet teal au-dessus : sépare visuellement
-        # chaque employé du précédent.
+        # Ligne du nom (fusionnée sur toute la largeur).
         ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=ncol)
-        for c in range(1, ncol + 1):
-            cell = ws.cell(row=row, column=c)
-            cell.fill = _FILL_BAND
-            cell.border = Border(top=sep)
         nc = ws.cell(row=row, column=1, value=name)
         nc.font = _F_LABEL
+        nc.fill = _FILL_BAND
         nc.alignment = _LEFT
         row += 1
 
