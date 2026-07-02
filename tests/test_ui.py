@@ -28,7 +28,7 @@ def _run_with_project(monkeypatch, project_no="P-1", id_project=1, description="
 def _empty_quart_dict():
     return {
         "responsable": "", "activites": [], "autres": [], "personnel": [], "equipements": [],
-        "temp_am": None, "temp_pm": None, "conditions": [], "heures": {}, "prime": {},
+        "temp_am": None, "temp_pm": None, "conditions": [], "heures": {}, "prime_codes": {},
         "commentaire_ligne": {}, "equip_codes": {}, "equip_hours": {}, "description": ""}
 
 
@@ -44,12 +44,12 @@ def _open_day_for_entry(monkeypatch, jour="Lundi", personnel=("Alice",)):
            "quarts": {"Jour": {"responsable": "", "activites": [], "autres": [],
                                "personnel": list(personnel), "equipements": [],
                                "temp_am": None, "temp_pm": None, "conditions": [],
-                               "heures": {}, "prime": {}, "commentaire_ligne": {},
+                               "heures": {}, "prime_codes": {}, "commentaire_ligne": {},
                                "equip_codes": {}, "equip_hours": {},
                                "description": ""}}}
     at.session_state["jours"] = {j: {"date": None, "quarts": {"Jour": {
         "responsable": "", "activites": [], "autres": [], "personnel": [], "equipements": [],
-        "temp_am": None, "temp_pm": None, "conditions": [], "heures": {}, "prime": {},
+        "temp_am": None, "temp_pm": None, "conditions": [], "heures": {}, "prime_codes": {},
         "commentaire_ligne": {}, "equip_codes": {}, "equip_hours": {}, "description": ""}}} for j in ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]}
     at.session_state["jours"][jour] = day
     at.session_state["active_day"] = jour
@@ -301,8 +301,8 @@ def test_day_equip_codes_and_hours(monkeypatch):
 def test_day_prime_inline(monkeypatch):
     at = _open_day_for_entry(monkeypatch)
     _goto_saisie(at)
-    [n for n in at.number_input if n.key == "p_Lundi_Jour_Alice"][0].set_value(2.0).run()
-    assert at.session_state["jours"]["Lundi"]["quarts"]["Jour"]["prime"]["Alice"] == 2.0
+    [bg for bg in at.button_group if bg.key == "p_Lundi_Jour_Alice"][0].set_value(["H"]).run()
+    assert at.session_state["jours"]["Lundi"]["quarts"]["Jour"]["prime_codes"]["Alice"] == ["H"]
     assert not at.exception
 
 
@@ -568,7 +568,7 @@ def test_add_quart_can_copy_team_and_activities(monkeypatch):
     assert qs["equipements"] == ["Camion v1"]
     assert qs["responsable"] == "M. Roy"
     assert qs["heures"] == {}     # les heures ne sont PAS copiées
-    assert qs["prime"] == {}
+    assert qs["prime_codes"] == {}
     assert not at.exception
 
 
