@@ -65,6 +65,20 @@ def _equip_code_label(code):
     return f"{code} — {_EQUIP_CODE_LABELS.get(code, code)}"
 
 
+PRIME_CODES = [
+    ("I", "Intempérie"), ("S", "Surtemps"), ("G", "Galvanisé"),
+    ("T", "Poste HT"), ("A", "Peinture"), ("Pa", "Panier"),
+    ("P", "Préavis"), ("H", "Hauteur"), ("R", "Repas"),
+    ("Pu", "Puissance"), ("Co", "Contrôle"),
+]
+PRIME_CODE_VALUES = [c for c, _ in PRIME_CODES]
+_PRIME_CODE_LABELS = dict(PRIME_CODES)
+
+
+def _prime_code_label(code):
+    return f"{code} — {_PRIME_CODE_LABELS.get(code, code)}"
+
+
 # Couleurs Ondel
 ONDEL_GREEN = "#0999AA"
 ONDEL_GREEN_DARK = "#077A88"
@@ -219,7 +233,7 @@ def _empty_quart():
         "responsable": "", "activites": [], "autres": [],
         "personnel": [], "equipements": [],
         "temp_am": None, "temp_pm": None, "conditions": [],
-        "heures": {}, "prime": {}, "commentaire_ligne": {},
+        "heures": {}, "prime_codes": {}, "commentaire_ligne": {},
         "equip_codes": {}, "equip_hours": {},
         "description": "",
     }

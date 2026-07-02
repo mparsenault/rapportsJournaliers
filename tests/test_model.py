@@ -8,12 +8,19 @@ def test_empty_day_shape():
     assert d["date"] is None
     assert list(d["quarts"].keys()) == ["Jour"]
     q = d["quarts"]["Jour"]
-    assert q["heures"] == {} and q["prime"] == {} and q["commentaire_ligne"] == {}
+    assert q["heures"] == {} and q["prime_codes"] == {} and q["commentaire_ligne"] == {}
+    assert "prime" not in q
     assert q["equip_codes"] == {} and q["equip_hours"] == {}
     assert q["personnel"] == [] and q["equipements"] == []
     assert q["responsable"] == "" and q["description"] == ""
     assert q["conditions"] == []
     assert q["temp_am"] is None and q["temp_pm"] is None
+
+
+def test_prime_code_label():
+    import app
+    assert app._prime_code_label("H") == "H — Hauteur"
+    assert set(app.PRIME_CODE_VALUES) == {"I", "S", "G", "T", "A", "Pa", "P", "H", "R", "Pu", "Co"}
 
 
 def _sample_quart():
