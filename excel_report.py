@@ -75,7 +75,7 @@ def _write_row(ws, row, values, *, bold=False, fill=None, fmt=None):
 
 
 # Colonnes fixes (regroupement par ressource : activités + plages en sous-lignes).
-_PERS_COLS = ["Nom / Activité", "Plage", "TR", "TS", "Hrs Éq.", "Code Éq.", "Prime", "Commentaire"]
+_PERS_COLS = ["Nom / Activité", "Plage", "TR", "TS", "Hrs Éq.", "Code Éq.", "Prime", "Travaux effectués"]
 _EQUIP_COLS = ["Véhicule / Activité", "Plage", "TR", "TS", "Prime", "Commentaire"]
 _NCOL = len(_PERS_COLS)  # largeur de la feuille (le tableau personnel est le plus large)
 
@@ -85,7 +85,7 @@ def _col_width(name):
     return {
         "Nom / Activité": 40, "Véhicule / Activité": 40, "Plage": 14,
         "TR": 6.5, "TS": 6.5, "Hrs Éq.": 9, "Code Éq.": 13, "Prime": 9,
-        "Commentaire": 30,
+        "Commentaire": 30, "Travaux effectués": 30,
     }.get(name, 12)
 
 
