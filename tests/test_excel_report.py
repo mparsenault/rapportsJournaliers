@@ -204,7 +204,9 @@ def test_build_week_workbook_feuilles_modernisees():
     assert "Revu par" in txt
 
 
-def test_build_day_workbook_total_de_la_journee():
+def test_build_day_workbook_totaux_en_formules():
+    # Les totaux sont des FORMULES Excel : SUM par employé, somme des employés
+    # pour la journée (elles se recalculent si on édite la feuille).
     q = app._empty_quart()
     q["personnel"] = ["A", "B"]
     q["heures"] = {"A": {"Excavation": {"TR": 4.0, "TS": 0.0}},
@@ -212,11 +214,17 @@ def test_build_day_workbook_total_de_la_journee():
     day = {"date": date(2026, 6, 22), "quarts": {"Jour": q}}
     ws = openpyxl.load_workbook(
         excel_report.build_day_workbook(_projet(), "Lundi", day, ""))["Lundi"]
-    # Trouver la ligne « Total de la journée » et vérifier ses totaux TR/TS.
-    row = next(r for r in range(1, ws.max_row + 1)
-               if ws.cell(r, 1).value == "Total de la journée")
-    assert ws.cell(row, 3).value == 8.0    # TR : 4 + 4
-    assert ws.cell(row, 4).value == 1.0    # TS : 0 + 1
+    # Total par employé : =SUM(...) sur les lignes de détail (TR col 3, TS col 4).
+    emp_totals = [r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value == "Total"]
+    assert len(emp_totals) == 2
+    for r in emp_totals:
+        assert str(ws.cell(r, 3).value).startswith("=SUM(")
+        assert str(ws.cell(r, 4).value).startswith("=SUM(")
+    # Total de la journée : somme des cellules TR/TS des lignes Total employés.
+    day_row = next(r for r in range(1, ws.max_row + 1)
+                   if ws.cell(r, 1).value == "Total de la journée")
+    assert ws.cell(day_row, 3).value == "=" + "+".join(f"C{r}" for r in emp_totals)
+    assert ws.cell(day_row, 4).value == "=" + "+".join(f"D{r}" for r in emp_totals)
 
 
 def test_build_day_workbook_bas_de_page():

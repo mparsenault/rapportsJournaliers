@@ -226,24 +226,34 @@ def _stamp(ws, exported_by):
     cell.font = Font(name="Calibri", size=8, italic=True, color="6B7B7E")
 
 
-def _quart_hour_totals(quart):
-    """Totaux (TR, TS, heures d'équipement) d'un quart, dérivés des heures saisies."""
-    tr = ts = 0.0
-    for acts in (quart.get("heures") or {}).values():
-        for entry in (acts or {}).values():
-            norm = app._norm_entry(entry)
-            tr += float(norm.get("TR") or 0)
-            ts += float(norm.get("TS") or 0)
-    eq = sum(float(v) for v in (quart.get("equip_hours") or {}).values() if v is not None)
-    return tr, ts, eq
+def _sum_formula(col_idx, start, end):
+    """Formule Excel =SUM(col_start:col_end) ; 0.0 si la plage est vide."""
+    if end < start:
+        return 0.0
+    letter = get_column_letter(col_idx)
+    return f"=SUM({letter}{start}:{letter}{end})"
 
 
-def _day_total_row(ws, row, tr, ts, eq):
-    """Ligne 'Total de la journée' (gras, filet teal au-dessus). Prochaine ligne."""
+def _add_cells_formula(col_idx, rows):
+    """Formule Excel =A+B+… sur des cellules d'une colonne ; 0.0 si aucune ligne."""
+    if not rows:
+        return 0.0
+    letter = get_column_letter(col_idx)
+    return "=" + "+".join(f"{letter}{r}" for r in rows)
+
+
+def _day_total_row(ws, row, tr_rows, eq_rows):
+    """Ligne 'Total de la journée' (gras, filet teal au-dessus). Les totaux sont
+    des FORMULES Excel : somme des cellules des lignes Total par ressource.
+    `tr_rows` = lignes Total de toutes les ressources (TR col 3 / TS col 4) ;
+    `eq_rows` = lignes Total du personnel (Hrs Éq. col 6). Prochaine ligne."""
     row += 1  # espace avant le total
-    # Cols : [label, Plage, TR, TS, Code Éq., Hrs Éq., ...] -> heures d'équipement en col 6.
-    vals = ["Total de la journée", None, tr, ts, None, (eq or None)] + [None] * (_NCOL - 6)
+    vals = ["Total de la journée", None,
+            _add_cells_formula(3, tr_rows), _add_cells_formula(4, tr_rows),
+            None, _add_cells_formula(6, eq_rows)] + [None] * (_NCOL - 6)
     _write_row(ws, row, vals, bold=True, fmt=_HOURS_FMT)
+    for c in (3, 4, 6):
+        ws.cell(row=row, column=c).number_format = _HOURS_FMT
     top = Side(style="medium", color=_TEAL)
     for c in range(1, _NCOL + 1):
         ws.cell(row=row, column=c).border = Border(
@@ -313,7 +323,7 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
     prim_name, primary = _primary_quart(day)
     row = _meta_panel(ws, row, projet, jour_name, day, prim_name, primary, exported_by)
 
-    day_tr = day_ts = day_eq = 0.0
+    tr_rows, eq_rows = [], []   # lignes Total à sommer (TR/TS = toutes ; Hrs Éq = personnel)
     for qname in app._day_quart_names(day):
         quart = day["quarts"][qname]
         if app._quart_total(quart) <= 0:
@@ -329,21 +339,19 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
             row += 1
 
         if quart.get("personnel"):
-            row = _write_resource_table(ws, row, quart, quart["personnel"],
-                                        _PERS_COLS, with_equip=True)
+            row, prows = _write_resource_table(ws, row, quart, quart["personnel"],
+                                               _PERS_COLS, with_equip=True)
+            tr_rows += prows
+            eq_rows += prows   # les lignes Total du personnel portent Hrs Éq. (col 6)
             row += 1
         if quart.get("equipements"):
-            row = _write_resource_table(ws, row, quart, quart["equipements"],
-                                        _EQUIP_COLS, with_equip=False)
+            row, erows = _write_resource_table(ws, row, quart, quart["equipements"],
+                                               _EQUIP_COLS, with_equip=False)
+            tr_rows += erows
             row += 1
         row += 1
 
-        tr, ts, eq = _quart_hour_totals(quart)
-        day_tr += tr
-        day_ts += ts
-        day_eq += eq
-
-    row = _day_total_row(ws, row, day_tr, day_ts, day_eq)
+    row = _day_total_row(ws, row, tr_rows, eq_rows)
 
     row = _equip_legend(ws, row)
     row = _comments_block(ws, row)
@@ -355,9 +363,10 @@ def _build_day_sheet(ws, projet, jour_name, day, exported_by=""):
 def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
     """Tableau groupé par ressource : ligne nom, puis par activité ses plages
     horaires (début–fin, type TR/TS) — ou une ligne unique en mode direct —, et
-    une ligne Total (totaux + champs par ressource). Renvoie la prochaine ligne libre.
+    une ligne Total dont TR/TS sont des FORMULES (=SUM des lignes de détail).
+    Renvoie (prochaine ligne libre, [numéros des lignes Total]).
 
-    Colonnes : [label, Plage, TR, TS, (Hrs Éq., Code Éq.,) Prime, Commentaire]."""
+    Colonnes : [label, Plage, TR, TS, (Code Éq., Hrs Éq.,) Prime, Travaux]."""
     ncol = len(cols)
     extra = ncol - 4  # colonnes après [label, Plage, TR, TS]
     _write_row(ws, row, cols, bold=True, fill=_FILL_HEAD)
@@ -370,6 +379,7 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
     eqh = quart.get("equip_hours") or {}
     eqc = quart.get("equip_codes") or {}
 
+    total_rows = []
     for i, name in enumerate(names):
         # Ligne vide (hauteur 6, sans fond) entre employés — séparation visuelle.
         if i > 0:
@@ -384,7 +394,7 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
         nc.alignment = _LEFT
         row += 1
 
-        tr_tot = ts_tot = 0.0
+        detail_start = row   # première ligne de détail (activités/plages)
         for label in sorted(acts):
             norm = app._norm_entry(acts[label])
             ranges = norm.get("ranges") or []
@@ -399,8 +409,6 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
                     dur = app._range_hours(deb, fin)
                     tr = dur if typ == "TR" else 0.0
                     ts = dur if typ == "TS" else 0.0
-                    tr_tot += tr
-                    ts_tot += ts
                     _write_row(ws, row, [f"      {deb} – {fin}", typ, tr, ts]
                                + [None] * extra, fmt=_HOURS_FMT)
                     row += 1
@@ -408,21 +416,26 @@ def _write_resource_table(ws, row, quart, names, cols, *, with_equip):
                 # Mode direct : une seule ligne avec les heures.
                 tr = float(norm.get("TR") or 0)
                 ts = float(norm.get("TS") or 0)
-                tr_tot += tr
-                ts_tot += ts
                 _write_row(ws, row, ["  " + label, None, tr, ts]
                            + [None] * extra, fmt=_HOURS_FMT)
                 row += 1
+        detail_end = row - 1   # dernière ligne de détail
 
+        tr_cell = _sum_formula(3, detail_start, detail_end)   # TR = col 3
+        ts_cell = _sum_formula(4, detail_start, detail_end)   # TS = col 4
         if with_equip:
             codes = ", ".join(eqc.get(name) or []) or None
-            total = ["Total", None, tr_tot, ts_tot, codes, eqh.get(name),
+            total = ["Total", None, tr_cell, ts_cell, codes, eqh.get(name),
                      ", ".join(prime.get(name) or []) or None, comm.get(name)]
         else:
-            total = ["Total", None, tr_tot, ts_tot, ", ".join(prime.get(name) or []) or None, comm.get(name)]
+            total = ["Total", None, tr_cell, ts_cell,
+                     ", ".join(prime.get(name) or []) or None, comm.get(name)]
         _write_row(ws, row, total, bold=True, fmt=_HOURS_FMT, fill=_FILL_BAND)
+        ws.cell(row=row, column=3).number_format = _HOURS_FMT   # format des cellules-formules
+        ws.cell(row=row, column=4).number_format = _HOURS_FMT
+        total_rows.append(row)
         row += 1
-    return row
+    return row, total_rows
 
 
 def build_day_workbook(projet, jour_name, day, exported_by=""):
