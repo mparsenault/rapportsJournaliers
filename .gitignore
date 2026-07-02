@@ -219,3 +219,6 @@ __marimo__/
 
 # Compagnon visuel brainstorming
 .superpowers/
+
+# Worktrees créés par superpowers (isolation)
+.claude/worktrees/
